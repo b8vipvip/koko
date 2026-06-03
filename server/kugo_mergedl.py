@@ -34,7 +34,7 @@ CORS(
     app,
     origins=[origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:8000").split(",") if origin.strip()],
     methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "X-Idempotency-Key", "X-Requested-With", "X-Admin-Token", "Authorization"]
+    allow_headers=["Content-Type", "X-Idempotency-Key", "X-Requested-With", "X-Admin-Token", "X-Worker-Token", "Authorization"]
 )
 
 import  pymysql
@@ -76,6 +76,115 @@ def admin_required(func):
             return auth_error
         return func(*args, **kwargs)
     return wrapper
+
+
+def _safe_tail(value, keep=4):
+    if value is None:
+        return ""
+    value = str(value)
+    if len(value) <= keep:
+        return "*" * len(value)
+    return f"***{value[-keep:]}"
+
+
+def _json_payload():
+    return request.get_json(silent=True) or {}
+
+
+def require_worker_token():
+    expected = os.getenv("WORKER_API_TOKEN", "")
+    provided = request.headers.get("X-Worker-Token") or ""
+    if not expected:
+        logger.error("WORKER_API_TOKEN is not configured; rejecting worker API request")
+        return jsonify({"success": False, "message": "worker 鉴权未配置"}), 503
+    if provided != expected:
+        return jsonify({"success": False, "message": "worker 鉴权失败"}), 401
+    return None
+
+
+def worker_required(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        auth_error = require_worker_token()
+        if auth_error is not None:
+            return auth_error
+        return func(*args, **kwargs)
+    return wrapper
+
+
+def _normalize_task_input(data):
+    redeem_code = data.get("redeem_code") or data.get("order_id") or data.get("orderID")
+    phone = data.get("phone") or data.get("tel") or data.get("token")
+    code = data.get("code") or data.get("UrlsID") or data.get("yzm")
+    account = data.get("account") or data.get("zhanghu")
+    plan_type = data.get("plan_type") or data.get("huiyuanguize") or data.get("type")
+    return {
+        "redeem_code": str(redeem_code).strip() if redeem_code is not None else "",
+        "phone": str(phone).strip() if phone is not None else "",
+        "code": str(code).strip() if code is not None else "",
+        "account": str(account).strip() if account is not None else "",
+        "plan_type": str(plan_type).strip() if plan_type is not None else "",
+    }
+
+
+def _public_user_status(record, tel_record=None):
+    state = "waiting"
+    message = "任务已提交，等待处理"
+    result = None
+    progress = None
+    if record:
+        status = str(record.get("status"))
+        submitstatus = str(record.get("submitstatus"))
+        code_err = str(record.get("code_err"))
+        if status == "4":
+            state = "processing"
+            message = "worker 正在处理"
+        elif status == "2" and code_err == "2":
+            state = "failed"
+            message = "验证码错误或登录失败"
+        elif status == "2":
+            state = "account_ready"
+            message = "账号识别完成"
+            accounts = []
+            for idx in (1, 2, 3):
+                nickname = record.get(f"nickname{idx}")
+                if nickname:
+                    accounts.append({
+                        "nickname": nickname,
+                        "pic": record.get(f"pic{idx}"),
+                        "userid": record.get(f"userid{idx}"),
+                    })
+            result = {"accounts": accounts}
+        elif status == "3":
+            state = "new_user"
+            message = "检测到新账号"
+        elif status == "5":
+            state = "failed"
+            message = "任务处理失败"
+        elif submitstatus == "2":
+            state = "recharging"
+            message = "充值已提交，等待结果"
+    if tel_record:
+        r_status = tel_record.get("r_status")
+        c_status = tel_record.get("c_status")
+        details = tel_record.get("details")
+        if r_status:
+            progress = {"r_status": r_status, "c_status": c_status}
+            message = str(r_status)
+        if str(r_status) in ("成功", "success", "完成") or str(c_status) in ("2", "success"):
+            state = "success"
+        elif str(r_status) in ("失败", "failed", "超时", "卡了"):
+            state = "failed"
+        if details:
+            result = {**(result or {}), "details": details}
+    return {
+        "success": True,
+        "task_id": record.get("id") if record else None,
+        "status": state,
+        "message": message,
+        "progress": progress,
+        "result": result,
+    }
 
 
 class dbClass:
@@ -720,6 +829,294 @@ def login():
 
     # ========= 5) 未知 type =========
     return jsonify({"code": "400", "msg": f"未知type: {req_type}"}), 400
+
+@app.post('/api/task/create')
+def api_task_create():
+    """Public user API for usrvip to submit a recharge task without running Selenium on API host."""
+    data = _normalize_task_input(_json_payload())
+    redeem_code = data['redeem_code']
+    phone = data['phone']
+    code = data['code']
+    account = data['account']
+    plan_type = data['plan_type']
+
+    if not all([redeem_code, phone, code]):
+        return jsonify({'success': False, 'message': '缺少兑换码、手机号或验证码'}), 400
+
+    conn = None
+    try:
+        conn = get_db_connection(dict_cursor=True, autocommit=False)
+        conn.begin()
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id FROM user_data
+                WHERE (order_id=%s OR redeem_code=%s) AND phone=%s
+                LIMIT 1
+                FOR UPDATE
+                """,
+                (redeem_code, redeem_code, phone),
+            )
+            existing = cursor.fetchone()
+            if existing:
+                conn.rollback()
+                return jsonify({
+                    'success': True,
+                    'message': '任务已存在，请勿重复提交',
+                    'task_id': existing['id'],
+                    'record_id': existing['id'],
+                }), 200
+
+            cursor.execute(
+                """
+                UPDATE order_id
+                SET status=2, phone=%s, type=COALESCE(NULLIF(%s, ''), type), redeem_code=COALESCE(redeem_code, orderID)
+                WHERE (orderID=%s OR redeem_code=%s) AND status=1
+                """,
+                (phone, plan_type, redeem_code, redeem_code),
+            )
+            if cursor.rowcount != 1:
+                conn.rollback()
+                return jsonify({'success': False, 'message': '兑换码无效或已被使用'}), 409
+
+            cursor.execute(
+                """
+                INSERT INTO user_data (phone, code, order_id, redeem_code, status, submitstatus, create_date)
+                VALUES (%s, %s, %s, %s, 1, 1, NOW())
+                """,
+                (phone, code, redeem_code, redeem_code),
+            )
+            record_id = cursor.lastrowid
+        conn.commit()
+        logger.info(
+            "public task created record_id=%s phone_tail=%s redeem_tail=%s account=%s plan_type=%s",
+            record_id,
+            _safe_tail(phone),
+            _safe_tail(redeem_code, keep=6),
+            account,
+            plan_type,
+        )
+        return jsonify({
+            'success': True,
+            'message': '提交成功',
+            'task_id': record_id,
+            'record_id': record_id,
+        }), 201
+    except Exception as exc:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        logger.exception("api_task_create failed phone_tail=%s redeem_tail=%s", _safe_tail(phone), _safe_tail(redeem_code, keep=6))
+        return jsonify({'success': False, 'message': '服务器错误'}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.get('/api/task/status')
+def api_task_status():
+    task_id = request.args.get('task_id') or request.args.get('record_id')
+    redeem_code = request.args.get('redeem_code') or request.args.get('order_id') or request.args.get('orderID')
+    phone = request.args.get('phone') or request.args.get('tel')
+    if not any([task_id, redeem_code, phone]):
+        return jsonify({'success': False, 'message': '缺少查询参数'}), 400
+
+    try:
+        conn = get_db_connection(dict_cursor=True, autocommit=True)
+        with conn.cursor() as cursor:
+            where = []
+            params = []
+            if task_id:
+                where.append('id=%s')
+                params.append(task_id)
+            if redeem_code:
+                where.append('(order_id=%s OR redeem_code=%s)')
+                params.extend([redeem_code, redeem_code])
+            if phone:
+                where.append('phone=%s')
+                params.append(phone)
+            cursor.execute(
+                f"""
+                SELECT id, phone, order_id, redeem_code, status, submitstatus, code_err,
+                       nickname1, pic1, userid1, nickname2, pic2, userid2, nickname3, pic3, userid3,
+                       create_date, update_date
+                FROM user_data
+                WHERE {' AND '.join(where)}
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                params,
+            )
+            record = cursor.fetchone()
+            if not record:
+                return jsonify({'success': False, 'message': '记录不存在'}), 404
+            cursor.execute(
+                """
+                SELECT id, r_status, c_status, details, userid, url, thumbnail_url, create_date
+                FROM tel_data
+                WHERE (tel=%s OR %s IS NULL) AND (orderID=%s OR redeem_code=%s OR %s IS NULL)
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (record.get('phone'), record.get('phone'), record.get('order_id'), record.get('redeem_code'), record.get('order_id')),
+            )
+            tel_record = cursor.fetchone()
+        conn.close()
+        return jsonify(_public_user_status(record, tel_record))
+    except Exception:
+        logger.exception("api_task_status failed task_id=%s phone_tail=%s redeem_tail=%s", task_id, _safe_tail(phone), _safe_tail(redeem_code, keep=6))
+        return jsonify({'success': False, 'message': '服务器错误'}), 500
+
+
+@app.post('/api/worker/fetch')
+@worker_required
+def api_worker_fetch():
+    data = _json_payload()
+    worker_id = str(data.get('worker_id') or request.headers.get('X-Worker-Id') or 'worker-unknown')[:64]
+    conn = None
+    try:
+        conn = get_db_connection(dict_cursor=True, autocommit=False)
+        conn.begin()
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id, phone, code, order_id, redeem_code, status, submitstatus,
+                       nickname1, userid1, nickname2, userid2, nickname3, userid3
+                FROM user_data
+                WHERE status=1 AND submitstatus=1
+                ORDER BY id ASC
+                LIMIT 1
+                FOR UPDATE
+                """
+            )
+            task = cursor.fetchone()
+            if not task:
+                conn.rollback()
+                return jsonify({'success': True, 'task': None, 'message': '暂无任务'}), 200
+            cursor.execute("UPDATE user_data SET status=4, update_date=NOW() WHERE id=%s", (task['id'],))
+            cursor.execute(
+                """
+                INSERT INTO workers(worker_id, status, last_heartbeat_at, current_task_id)
+                VALUES(%s, 'busy', NOW(), %s)
+                ON DUPLICATE KEY UPDATE status='busy', last_heartbeat_at=NOW(), current_task_id=VALUES(current_task_id)
+                """,
+                (worker_id, task['id']),
+            )
+        conn.commit()
+        logger.info("worker task fetched worker_id=%s task_id=%s phone_tail=%s", worker_id, task['id'], _safe_tail(task.get('phone')))
+        return jsonify({
+            'success': True,
+            'task': {
+                'task_id': task['id'],
+                'record_id': task['id'],
+                'phone': task['phone'],
+                'code': task['code'],
+                'order_id': task.get('order_id'),
+                'redeem_code': task.get('redeem_code') or task.get('order_id'),
+                'accounts': [
+                    {'slot': 'zh1', 'userid': task.get('userid1'), 'nickname': task.get('nickname1')},
+                    {'slot': 'zh2', 'userid': task.get('userid2'), 'nickname': task.get('nickname2')},
+                    {'slot': 'zh3', 'userid': task.get('userid3'), 'nickname': task.get('nickname3')},
+                ],
+            },
+        }), 200
+    except Exception:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        logger.exception("api_worker_fetch failed worker_id=%s", worker_id)
+        return jsonify({'success': False, 'message': '服务器错误'}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.post('/api/worker/report')
+@worker_required
+def api_worker_report():
+    data = _json_payload()
+    worker_id = str(data.get('worker_id') or request.headers.get('X-Worker-Id') or 'worker-unknown')[:64]
+    task_id = data.get('task_id') or data.get('record_id') or data.get('user_data_id')
+    tel_data_id = data.get('tel_data_id') or data.get('tel_id')
+    status = str(data.get('status') or '').lower()
+    r_status = data.get('r_status')
+    c_status = data.get('c_status')
+    details = data.get('details') or data.get('error_message')
+    userid = data.get('userid')
+    screenshot = data.get('screenshot') or data.get('image_url')
+
+    if status not in {'success', 'failed', 'running'}:
+        return jsonify({'success': False, 'message': '状态值无效'}), 400
+    if not task_id and not tel_data_id:
+        return jsonify({'success': False, 'message': '缺少 task_id 或 tel_data_id'}), 400
+
+    conn = None
+    try:
+        conn = get_db_connection(dict_cursor=True, autocommit=False)
+        conn.begin()
+        with conn.cursor() as cursor:
+            record = None
+            if task_id:
+                cursor.execute("SELECT id, phone, code, order_id, redeem_code FROM user_data WHERE id=%s FOR UPDATE", (task_id,))
+                record = cursor.fetchone()
+                if not record:
+                    conn.rollback()
+                    return jsonify({'success': False, 'message': '任务不存在'}), 404
+                if status == 'running':
+                    cursor.execute("UPDATE user_data SET status=4, update_date=NOW() WHERE id=%s", (task_id,))
+                elif status == 'success':
+                    cursor.execute("UPDATE user_data SET status=2, submitstatus=2, update_date=NOW() WHERE id=%s", (task_id,))
+                    cursor.execute("UPDATE order_id SET status=3 WHERE orderID=%s OR redeem_code=%s", (record.get('order_id'), record.get('redeem_code') or record.get('order_id')))
+                else:
+                    cursor.execute("UPDATE user_data SET status=5, update_date=NOW() WHERE id=%s", (task_id,))
+                    cursor.execute("UPDATE order_id SET status=1 WHERE status=2 AND (orderID=%s OR redeem_code=%s)", (record.get('order_id'), record.get('redeem_code') or record.get('order_id')))
+            if tel_data_id:
+                update_parts = []
+                params = []
+                if r_status is not None:
+                    update_parts.append('r_status=%s')
+                    params.append(r_status)
+                if c_status is not None:
+                    update_parts.append('c_status=%s')
+                    params.append(c_status)
+                if details is not None:
+                    update_parts.append('details=%s')
+                    params.append(str(details)[:2000])
+                if userid is not None:
+                    update_parts.append('userid=%s')
+                    params.append(userid)
+                if screenshot is not None:
+                    update_parts.append('url=%s')
+                    params.append(str(screenshot)[:500])
+                if update_parts:
+                    params.append(tel_data_id)
+                    cursor.execute(f"UPDATE tel_data SET {', '.join(update_parts)} WHERE id=%s", params)
+            cursor.execute(
+                """
+                INSERT INTO workers(worker_id, status, last_heartbeat_at, current_task_id)
+                VALUES(%s, 'online', NOW(), NULL)
+                ON DUPLICATE KEY UPDATE status='online', last_heartbeat_at=NOW(), current_task_id=NULL
+                """,
+                (worker_id,),
+            )
+        conn.commit()
+        logger.info("worker report accepted worker_id=%s task_id=%s tel_data_id=%s status=%s", worker_id, task_id, tel_data_id, status)
+        return jsonify({'success': True, 'message': '回传成功'}), 200
+    except Exception:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        logger.exception("api_worker_report failed worker_id=%s task_id=%s", worker_id, task_id)
+        return jsonify({'success': False, 'message': '服务器错误'}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/getTelData')
 def getTelData():

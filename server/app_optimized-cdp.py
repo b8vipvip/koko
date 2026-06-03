@@ -31,7 +31,7 @@ CORS(
     app,
     origins=[origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:8000").split(",") if origin.strip()],
     methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "X-Idempotency-Key", "X-Requested-With", "X-Admin-Token", "Authorization"]
+    allow_headers=["Content-Type", "X-Idempotency-Key", "X-Requested-With", "X-Admin-Token", "X-Worker-Token", "Authorization"]
 )
 
 last_user_submit_time = time.time()

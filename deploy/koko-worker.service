@@ -1,0 +1,17 @@
+[Unit]
+Description=Koko Domestic Worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/koko
+EnvironmentFile=/opt/koko/.env
+ExecStart=/opt/koko/.venv/bin/python /opt/koko/worker/worker_client.py
+Restart=always
+RestartSec=5
+User=koko
+Group=koko
+
+[Install]
+WantedBy=multi-user.target
