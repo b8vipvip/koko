@@ -1,6 +1,7 @@
 <?php
 header('Content-Type: application/json');
 require_once '../db.php';
+koko_require_admin();
 
 $data = json_decode(file_get_contents('php://input'), true);
 $device_id = (int)$data['device_id'];
@@ -30,6 +31,7 @@ try {
 } catch (Exception $e) {
     $pdo->rollBack();
     http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    error_log('资金接口失败: ' . $e->getMessage());
+    echo json_encode(['error' => 'server_error']);
 }
 ?>

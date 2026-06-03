@@ -16,6 +16,7 @@ try {
     echo json_encode($balances);
 } catch (Exception $e) {
     http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    error_log('资金查询失败: ' . $e->getMessage());
+    echo json_encode(['error' => 'server_error']);
 }
 ?>

@@ -1,5 +1,8 @@
 <?php
 require_once __DIR__ . '/db.php';
+if (php_sapi_name() !== 'cli') {
+    koko_require_admin();
+}
 
 try {
     $stmt = $pdo->query("SELECT id, dev, czp FROM order_data WHERE processed = 1 AND dev IN ('157','178','188','198','208','308') LIMIT 10");
@@ -30,6 +33,7 @@ try {
     }
 } catch (Exception $e) {
     $pdo->rollBack();
-    echo "同步失败: " . $e->getMessage();
+    error_log('自动同步失败: ' . $e->getMessage());
+    echo '同步失败';
 }
 ?>

@@ -1,65 +1,47 @@
 <?php
+require_once __DIR__ . '/lib/config.php';
+
 class DbClass {
     private $conn;
 
     public function __construct() {
-        $servername = "127.0.0.1";
-        $username = "kugo";
-        $password = "HP77C";
-        $dbname = "kugo";
-
-        // 连接数据库
-        $this->conn = new mysqli($servername, $username, $password, $dbname);
-
-        // 设置编码（可选）
-        $this->conn->set_charset("utf8mb4");
-
-        // 连接错误处理，不 die
-        if ($this->conn->connect_error) {
-            error_log("数据库连接失败: " . $this->conn->connect_error);
-            $this->conn = null; // 设置为空，避免后续操作
+        try {
+            $this->conn = koko_mysqli();
+        } catch (Throwable $e) {
+            error_log('数据库连接失败: ' . $e->getMessage());
+            $this->conn = null;
         }
     }
 
-    // 查询一行
     public function query($sql) {
         if (!$this->conn) return false;
-
         $result = $this->conn->query($sql);
-
         if ($result) {
             return $result->fetch_assoc();
-        } else {
-            error_log("SQL执行失败: $sql | 错误: " . $this->conn->error);
-            return false;
         }
+        error_log('SQL执行失败: ' . $this->conn->error);
+        return false;
     }
 
-    // 查询多行（备用方法）
     public function queryAll($sql) {
         if (!$this->conn) return [];
-
         $result = $this->conn->query($sql);
         $data = [];
-
         if ($result) {
             while ($row = $result->fetch_assoc()) {
                 $data[] = $row;
             }
             return $data;
-        } else {
-            error_log("SQL执行失败: $sql | 错误: " . $this->conn->error);
-            return [];
         }
+        error_log('SQL执行失败: ' . $this->conn->error);
+        return [];
     }
 
-    // 执行更新语句（如 INSERT、UPDATE、DELETE）
     public function execute($sql) {
         if (!$this->conn) return false;
-
         $success = $this->conn->query($sql);
         if (!$success) {
-            error_log("SQL执行失败: $sql | 错误: " . $this->conn->error);
+            error_log('SQL执行失败: ' . $this->conn->error);
         }
         return $success;
     }

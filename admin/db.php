@@ -1,21 +1,12 @@
 <?php
-$host = 'localhost';
-$db   = 'kugo';
-$user = 'kugo';
-$pass = 'HP77';
-$charset = 'utf8';
-
-$dsn = "mysql:host=$host;dbname=$db;charset=$charset";
-$options = [
-    PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-];
+require_once __DIR__ . '/lib/config.php';
 
 try {
-    $pdo = new PDO($dsn, $user, $pass, $options);
-} catch (Exception $e) {
+    $pdo = koko_pdo();
+} catch (Throwable $e) {
+    error_log('PDO 数据库连接失败: ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => 'db_error'], JSON_UNESCAPED_UNICODE);
     exit;
 }
 ?>

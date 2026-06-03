@@ -1,0 +1,13 @@
+.env
+*.log
+__pycache__/
+*.py[cod]
+.venv/
+temp_userdata/
+logs/
+error_log.txt
+php_error.log
+php.log
+last_mail_time.txt
+*.upload.tmp
+*.sql.*.tmp

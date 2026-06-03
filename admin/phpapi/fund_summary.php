@@ -8,7 +8,7 @@ $end_date = $data['end_date'];
 
 try {
     $stmt = $pdo->prepare("
-        SELECT 
+        SELECT
             SUM(fund_in) AS total_fund_in,
             SUM(manual_fund_out) AS total_manual_fund_out,
             SUM(auto_fund_out) AS total_auto_fund_out,
@@ -22,6 +22,7 @@ try {
     echo json_encode($result);
 } catch (Exception $e) {
     http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    error_log('资金查询失败: ' . $e->getMessage());
+    echo json_encode(['error' => 'server_error']);
 }
 ?>

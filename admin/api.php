@@ -1,37 +1,44 @@
 <?php
-class DbClass {
-    private $conn;
+require_once __DIR__ . '/lib/config.php';
+require_once __DIR__ . '/lib/mailer.php';
 
-    public function __construct($host, $user, $password, $database) {
-        $this->conn = new mysqli($host, $user, $password, $database);
-        if ($this->conn->connect_error) {
-            die("Connection failed: " . $this->conn->connect_error);
+class DbClass {
+    public $conn;
+
+    public function __construct() {
+        try {
+            $this->conn = koko_mysqli();
+        } catch (Throwable $e) {
+            error_log('数据库连接失败: ' . $e->getMessage());
+            http_response_code(500);
+            echo json_encode(['error' => 'db_error'], JSON_UNESCAPED_UNICODE);
+            exit;
         }
     }
 
     public function searchDb($keyword = null, $page = 1, $page_size = 8) {
         $offset = ($page - 1) * $page_size;
-    
+
         if ($keyword) {
             // 判断是不是手机号（11位全数字）
             if (preg_match('/^\d{11}$/', $keyword)) {
-                $sql = "SELECT id, tel, DATE_FORMAT(create_date, '%m%d%H%i') AS create_date, zhanghu, pxtype, r_status, c_status 
+                $sql = "SELECT id, tel, DATE_FORMAT(create_date, '%m%d%H%i') AS create_date, zhanghu, pxtype, r_status, c_status
                         FROM tel_data WHERE tel = ? ORDER BY id DESC LIMIT ? OFFSET ?";
             } else {
-                $sql = "SELECT id, tel, DATE_FORMAT(create_date, '%m%d%H%i') AS create_date, zhanghu, pxtype, r_status, c_status 
+                $sql = "SELECT id, tel, DATE_FORMAT(create_date, '%m%d%H%i') AS create_date, zhanghu, pxtype, r_status, c_status
                         FROM tel_data WHERE orderID = ? ORDER BY id DESC LIMIT ? OFFSET ?";
             }
-    
+
             $stmt = $this->conn->prepare($sql);
             $stmt->bind_param("sii", $keyword, $page_size, $offset);
-    
+
         } else {
-            $sql = "SELECT id, tel, DATE_FORMAT(create_date, '%m%d%H%i') AS create_date, zhanghu, pxtype, r_status, c_status 
+            $sql = "SELECT id, tel, DATE_FORMAT(create_date, '%m%d%H%i') AS create_date, zhanghu, pxtype, r_status, c_status
                     FROM tel_data ORDER BY id DESC LIMIT ? OFFSET ?";
             $stmt = $this->conn->prepare($sql);
             $stmt->bind_param("ii", $page_size, $offset);
         }
-    
+
         $stmt->execute();
         $result = $stmt->get_result();
         $records = $result->fetch_all(MYSQLI_ASSOC);
@@ -56,8 +63,8 @@ class DbClass {
 public function getDetails($id) {
     try {
         // 查询 tel_data 数据
-        $sql = "SELECT details, url, url1, zhanghu, tel, yzm, orderID, status, r_status 
-                FROM tel_data 
+        $sql = "SELECT details, url, url1, zhanghu, tel, yzm, orderID, status, r_status
+                FROM tel_data
                 WHERE id = ?";
         $stmt = $this->conn->prepare($sql);
 
@@ -95,7 +102,7 @@ public function getDetails($id) {
          * 才自动生成 details 并写入数据库
          */
         $detailsIsInvalid = !isset($details) || trim((string)$details) === '';
-        
+
         if (
             isset($tel, $yzm) &&
             trim((string)$tel) !== '' &&
@@ -111,21 +118,21 @@ public function getDetails($id) {
                 $status,
                 $r_status
             );
-        
+
             $update_sql = "UPDATE tel_data SET details = ? WHERE id = ?";
             $stmt_update = $this->conn->prepare($update_sql);
-        
+
             if ($stmt_update === false) {
                 throw new Exception("Error preparing update query: " . $this->conn->error);
             }
-        
+
             $stmt_update->bind_param("si", $commentDetails, $id);
             $stmt_update->execute();
             $stmt_update->close();
-        
+
             $details = $commentDetails;
         }
-        
+
         // 执行完上面的逻辑后，再判断 details 是否有效
         if (trim((string)$details) === '') {
             throw new Exception('No details found for the given ID');
@@ -172,7 +179,7 @@ public function getDetails($id) {
         http_response_code(500);
         header('Content-Type: application/json; charset=utf-8');
         echo json_encode([
-            'error' => 'Server error occurred: ' . $e->getMessage()
+            'error' => 'Server error occurred'
         ], JSON_UNESCAPED_UNICODE);
     }
 
@@ -188,13 +195,13 @@ public function checkNewTasks() {
         $sql = "
             SELECT id, tel, yzm, zhanghu, orderID, status, r_status
             FROM tel_data
-            WHERE 
-                tel IS NOT NULL 
+            WHERE
+                tel IS NOT NULL
                 AND TRIM(tel) != ''
-                AND yzm IS NOT NULL 
+                AND yzm IS NOT NULL
                 AND TRIM(yzm) != ''
                 AND (
-                    details IS NULL 
+                    details IS NULL
                     OR TRIM(details) = ''
                 )
             ORDER BY id ASC
@@ -257,15 +264,15 @@ public function checkNewTasks() {
             );
 
             $update_sql = "
-                UPDATE tel_data 
-                SET details = ? 
-                WHERE id = ? 
-                  AND tel IS NOT NULL 
+                UPDATE tel_data
+                SET details = ?
+                WHERE id = ?
+                  AND tel IS NOT NULL
                   AND TRIM(tel) != ''
-                  AND yzm IS NOT NULL 
+                  AND yzm IS NOT NULL
                   AND TRIM(yzm) != ''
                   AND (
-                      details IS NULL 
+                      details IS NULL
                       OR TRIM(details) = ''
                   )
             ";
@@ -324,43 +331,22 @@ public function checkNewTasks() {
         header('Content-Type: application/json; charset=utf-8');
         echo json_encode([
             'success' => false,
-            'error' => 'Server error occurred: ' . $e->getMessage()
+            'error' => 'Server error occurred'
         ], JSON_UNESCAPED_UNICODE);
     }
 
     exit;
 }
 private function sendNewTaskEmail($body) {
-    require_once __DIR__ . '/vendor/autoload.php';
-
-    $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
-
     try {
-        $mail->isSMTP();
-        $mail->Host = 'smtp.qq.com';
-        $mail->SMTPAuth = true;
-
-        // 建议后面改成配置文件，不要直接写死在代码里
-        $mail->Username = '3891327165@qq.com';
-        $mail->Password = 'orrridcwqsnaccah';
-
-        $mail->SMTPSecure = \PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_SMTPS;
-        $mail->Port = 465;
-
-        $mail->CharSet = 'UTF-8';
-
-        $mail->setFrom('3891327165@qq.com', '任务提醒');
-        $mail->addAddress('3959418301@qq.com', '管理员');
-
+        $mail = koko_create_mailer();
         $mail->Subject = '检测到新充值任务';
         $mail->Body = $body;
-
         $mail->send();
-
         return true;
-
-    } catch (\PHPMailer\PHPMailer\Exception $e) {
-        throw new Exception("邮件发送失败: " . $mail->ErrorInfo);
+    } catch (Throwable $e) {
+        error_log('邮件发送失败: ' . $e->getMessage());
+        throw new Exception('邮件发送失败');
     }
 }
 // public function getDetails($id) {
@@ -434,7 +420,7 @@ private function sendNewTaskEmail($body) {
 //     } catch (Exception $e) {
 //         // 捕获异常并返回错误信息
 //         http_response_code(500); // 设置错误码
-//         echo json_encode(['error' => 'Server error occurred: ' . $e->getMessage()]);
+//         echo json_encode(['error' => 'Server error occurred']);
 //     }
 //     exit; // 确保没有额外输出
 // }
@@ -461,7 +447,7 @@ public function setManualSuccess($id) {
 
     } catch (Exception $e) {
         http_response_code(500);
-        echo json_encode(['error' => 'Server error: ' . $e->getMessage()]);
+        echo json_encode(['error' => 'Server error']);
     }
     exit;
 }
@@ -514,7 +500,7 @@ public function check_and_update_c_status() {
   }
 }
 
-$db = new DbClass('localhost', 'kugo', 'HP77CyRpMxd8hhFN', 'kugo');
+$db = new DbClass();
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $action = $_GET['action'] ?? '';
 
@@ -559,10 +545,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 } elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (isset($_GET['action']) && $_GET['action'] === 'check_and_update_c_status') {
+        koko_require_admin();
         $db->check_and_update_c_status();
         exit;
 
     } elseif (isset($_GET['action']) && $_GET['action'] === 'setManualSuccess') {
+        koko_require_admin();
         $id = intval($_POST['id'] ?? 0);
 
         if ($id > 0) {
@@ -601,7 +589,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 //             'current_page' => $page,
 //             'total_pages' => $total_pages
 //         ]);
-        
+
 //     } elseif ($action == 'getDetails' && isset($_GET['id'])) {
 //         $id = (int) $_GET['id'];
 //         $details = $db->getDetails($id);
