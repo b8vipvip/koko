@@ -33,6 +33,41 @@ for path in Path('migrations').glob('*.sql'):
 PY
 
 
+
+printf '[check] SQL schema presence and core table scan\n'
+python - <<'PYSQLCHECK'
+from pathlib import Path
+import re
+schema = Path('sql/koko_full_schema.sql')
+migration = Path('migrations/001_normalize_redeem_code.sql')
+assert schema.exists(), 'sql/koko_full_schema.sql missing'
+assert migration.exists(), 'migrations/001_normalize_redeem_code.sql missing'
+text = schema.read_text()
+required_tables = [
+    'api_tokens', 'code_data', 'device_fund_details', 'img_data', 'order_data',
+    'order_data_anj', 'order_id', 'recharge_tasks', 'run_status', 'submissions',
+    'task_batches', 'task_logs', 'tel_data', 'user_data', 'workers',
+]
+missing = [t for t in required_tables if not re.search(r'CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+`?' + re.escape(t) + r'`?', text, re.I)]
+assert not missing, f'full schema missing core tables: {missing}'
+required_columns = {
+    'order_id': ['orderID', 'redeem_code', 'status'],
+    'order_data_anj': ['orderID', 'redeem_code', 'status'],
+    'tel_data': ['tel', 'orderID', 'redeem_code', 'status', 'r_status', 'c_status', 'yzm_status', 'create_date', 'userid'],
+    'user_data': ['phone', 'code', 'order_id', 'redeem_code', 'status', 'submitstatus', 'admin_override'],
+    'submissions': ['idempotency_key', 'order_id', 'redeem_code', 'response_json'],
+    'code_data': ['code', 'fetch_status', 'fetched_at'],
+    'device_fund_details': ['device_id', 'balance', 'operation_time'],
+}
+for table, columns in required_columns.items():
+    m = re.search(r'CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+`?' + re.escape(table) + r'`?\s*\((.*?)\)\s*ENGINE=', text, re.I | re.S)
+    assert m, f'{table}: table definition not found'
+    body = m.group(1)
+    absent = [c for c in columns if not re.search(r'`' + re.escape(c) + r'`', body)]
+    assert not absent, f'{table}: missing columns {absent}'
+print('SQL schema files and core tables ok')
+PYSQLCHECK
+
 printf '[check] Secret regression scan\n'
 if rg -n 'password\s*=\s*["'"'"']HP77|user\s*=\s*["'"'"']kaaa|database\s*=\s*["'"'"']kaaa' server/*.py; then
   printf 'Hardcoded database credential regression found.\n' >&2
