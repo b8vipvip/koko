@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 printf '[check] Python syntax check\n'
-python -m py_compile server/app.py server/app_optimized-cdp.py server/kugo_mergedl.py
+python -m py_compile server/app.py server/app_optimized-cdp.py server/kugo_mergedl.py worker/worker_client.py
 
 printf '[check] requirements metadata check\n'
 python - <<'PY'
@@ -18,6 +18,66 @@ missing = [pkg for pkg in needed if pkg not in text]
 assert not missing, f'missing packages: {missing}'
 print('requirements ok')
 PY
+
+printf '[check] Worker API deployment files scan\n'
+python - <<'PYCHECK_WORKER_FILES'
+from pathlib import Path
+required = [
+    Path('worker/worker_client.py'),
+    Path('deploy/koko-worker.service'),
+]
+for path in required:
+    assert path.exists(), f'{path} missing'
+env_text = Path('.env.example').read_text()
+for key in ['PUBLIC_API_BASE_URL', 'WORKER_API_TOKEN', 'WORKER_ID', 'WORKER_POLL_INTERVAL']:
+    assert f'{key}=' in env_text, f'.env.example missing {key}'
+print('worker files and env example ok')
+PYCHECK_WORKER_FILES
+
+printf '[check] Worker route protection scan\n'
+python - <<'PYCHECK_WORKER_ROUTES'
+from pathlib import Path
+text = Path('server/kugo_mergedl.py').read_text()
+for route in ['/api/worker/fetch', '/api/worker/report']:
+    idx = text.find(route)
+    if idx == -1:
+        raise SystemExit(f'{route}: route not found')
+    window = text[max(0, idx - 300):idx + 2500]
+    if '@worker_required' not in window:
+        raise SystemExit(f'{route}: missing @worker_required')
+    if 'X-Worker-Token' not in text or 'WORKER_API_TOKEN' not in text:
+        raise SystemExit(f'{route}: missing X-Worker-Token / WORKER_API_TOKEN handling')
+print('worker route protection ok')
+PYCHECK_WORKER_ROUTES
+
+printf '[check] Hardcoded infrastructure secret/IP scan\n'
+python - <<'PYCHECK_INFRA_SECRETS'
+from pathlib import Path
+import re
+text_paths = []
+for p in Path('.').rglob('*'):
+    if not p.is_file() or '.git' in p.parts or 'vendor' in p.parts:
+        continue
+    if p.suffix.lower() in {'.py', '.php', '.js', '.html', '.sh', '.service', '.md', '.example', '.txt'} or p.name in {'.env.example', 'README.md'}:
+        text_paths.append(p)
+private_ip = re.compile(r'(?<![\d.])(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})(?![\d.])')
+credential_assignment = re.compile(r'(?i)(?:token|password|passwd|pwd|secret)\s*[:=]\s*["\'](?!change-me)[^"\']{12,}["\']')
+violations = []
+for path in text_paths:
+    try:
+        content = path.read_text(errors='ignore')
+    except Exception:
+        continue
+    for lineno, line in enumerate(content.splitlines(), 1):
+        if private_ip.search(line):
+            violations.append(f'{path}:{lineno}: private/server IP literal found')
+        if credential_assignment.search(line):
+            violations.append(f'{path}:{lineno}: suspicious hardcoded credential assignment')
+if violations:
+    raise SystemExit('\n'.join(violations))
+print('no hardcoded domestic IP/token/database password patterns found')
+PYCHECK_INFRA_SECRETS
+
 
 printf '[check] SQL migration safety lint\n'
 python - <<'PY'
