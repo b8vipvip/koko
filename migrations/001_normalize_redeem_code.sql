@@ -35,9 +35,13 @@ UPDATE `order_data` SET `redeem_code` = `orderID` WHERE `redeem_code` IS NULL AN
 CREATE INDEX `idx_order_data_redeem_code_time` ON `order_data` (`redeem_code`, `time`);
 
 -- tel_data: SMS / task pipeline table.
+-- order_id is added as a lowercase compatibility alias because some legacy PHP/JS/Python code used it.
 ALTER TABLE `tel_data`
-  ADD COLUMN `redeem_code` varchar(50) NULL COMMENT 'Canonical redeem/recharge code; mirrors legacy orderID/orderid' AFTER `orderID`;
-UPDATE `tel_data` SET `redeem_code` = `orderID` WHERE `redeem_code` IS NULL AND `orderID` IS NOT NULL;
+  ADD COLUMN `order_id` varchar(50) NULL COMMENT 'Lowercase legacy alias for redeem/recharge code; mirrors orderID' AFTER `orderID`,
+  ADD COLUMN `redeem_code` varchar(50) NULL COMMENT 'Canonical redeem/recharge code; mirrors legacy orderID/order_id' AFTER `order_id`;
+UPDATE `tel_data` SET `order_id` = `orderID` WHERE `order_id` IS NULL AND `orderID` IS NOT NULL;
+UPDATE `tel_data` SET `redeem_code` = COALESCE(`orderID`, `order_id`) WHERE `redeem_code` IS NULL AND (`orderID` IS NOT NULL OR `order_id` IS NOT NULL);
+CREATE INDEX `idx_tel_data_order_id_status` ON `tel_data` (`order_id`, `status`, `yzm_status`);
 CREATE INDEX `idx_tel_data_redeem_code_status` ON `tel_data` (`redeem_code`, `status`, `yzm_status`);
 CREATE INDEX `idx_tel_data_tel_created` ON `tel_data` (`tel`, `create_date`);
 

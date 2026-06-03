@@ -33,6 +33,29 @@ for path in Path('migrations').glob('*.sql'):
 PY
 
 
+
+printf '[check] SQL file presence and full schema table scan\n'
+python - <<'PY'
+from pathlib import Path
+migration = Path('migrations/001_normalize_redeem_code.sql')
+full_schema = Path('sql/koko_full_schema.sql')
+if not migration.exists():
+    raise SystemExit('missing migrations/001_normalize_redeem_code.sql')
+if not full_schema.exists():
+    raise SystemExit('missing sql/koko_full_schema.sql')
+sql = full_schema.read_text().lower()
+core_tables = [
+    'api_tokens', 'code_data', 'device_fund_details', 'img_data',
+    'order_data', 'order_data_anj', 'order_id', 'recharge_tasks',
+    'run_status', 'submissions', 'task_batches', 'task_logs',
+    'tel_data', 'user_data', 'workers',
+]
+missing = [table for table in core_tables if f'create table if not exists `{table}`' not in sql and f'create table `{table}`' not in sql]
+if missing:
+    raise SystemExit('full schema missing core tables: ' + ', '.join(missing))
+print('SQL files and core tables ok')
+PY
+
 printf '[check] Secret regression scan\n'
 if rg -n 'password\s*=\s*["'"'"']HP77|user\s*=\s*["'"'"']kaaa|database\s*=\s*["'"'"']kaaa' server/*.py; then
   printf 'Hardcoded database credential regression found.\n' >&2

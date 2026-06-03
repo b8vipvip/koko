@@ -131,3 +131,12 @@ rsync -av --delete usrvip/ "$USRVIP_ROOT/"
 - 宝塔/Nginx 必须禁止访问 `.env`，示例：`location ~ /\.env { deny all; return 404; }`。如果 PHP-FPM 读取不到环境变量，PHP 会尝试解析 `/opt/koko/.env`。
 - 上线前必须更换所有已经提交历史中泄露过的数据库密码、SMTP 授权码、QQ 邮箱授权码和 `ADMIN_API_TOKEN`；仅从当前代码移除明文并不能让历史泄露失效。
 - 如果前端暂时没有传 `X-Admin-Token`，需要由前端 fetch/ajax 补 Header，或由 Nginx/宝塔反向代理对后台域名统一注入该 Header。
+
+## 11. 数据库兼容性与 SQL 文件使用说明
+
+- 新版后端仍按兼容旧库优先设计：现有业务代码继续兼容旧字段 `orderID` / `order_id`，新增的 `redeem_code` 是过渡期规范字段，不要求立即重建生产库。
+- 旧数据库升级请使用 `migrations/001_normalize_redeem_code.sql`。该迁移只新增兼容字段和索引，不删除旧字段、不清空数据、不 DROP 生产表；执行前必须先 `mysqldump --single-transaction --routines --events` 完整备份。
+- `migrations/001_normalize_redeem_code.sql` 不可重复执行；其中 `ALTER TABLE` 在 MySQL 中会隐式提交，`START TRANSACTION` 不能完整回滚 DDL。迁移失败时应优先恢复上线前备份，或按迁移文件中的回滚注释人工逐项回滚新增索引/字段。
+- 全新服务器或全新数据库初始化请使用 `sql/koko_full_schema.sql`。该文件包含 Python 后端和 PHP 后端会用到的核心表：`api_tokens`、`code_data`、`device_fund_details`、`img_data`、`order_data`、`order_data_anj`、`order_id`、`recharge_tasks`、`run_status`、`submissions`、`task_batches`、`task_logs`、`tel_data`、`user_data`、`workers`。
+- `sql/koko_full_schema.sql` 使用 `CREATE TABLE IF NOT EXISTS`，面向空库初始化；不要拿它覆盖已有生产库。全量 schema 已包含 `redeem_code`，并保留 `orderID` / `order_id` 兼容字段，字段关系在 SQL 注释中说明。
+- 当前发现的旧库兼容点：旧库至少需要原始 `kugo_structure_events.sql` 中已有的表和字段；如需启用规范字段和新增索引，请执行 `migrations/001_normalize_redeem_code.sql`。不兼容点仅限“新规范字段/索引不存在时无法按 `redeem_code` 查询优化”，当前代码仍保留旧字段查询路径。
