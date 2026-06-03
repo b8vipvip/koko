@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>添加与查询卡密</title>
+<link rel="stylesheet" href="/layui-v2.11.2/layui/css/layui.css">
+<script src="/jquery.min.js"></script>
+<!-- 引入本地 layer.js -->
+<script src="/layui-v2.11.2/layui/layui.js"></script>
+  <style>
+    /* 保持原有样式 */
+    body {
+      font-family: "Helvetica Neue", Arial, sans-serif;
+      background-color: #f5f5f5;
+      padding: 20px;
+      min-height: 100vh;
+      margin: 0;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+    }
+    .container {
+      background-color: #fff;
+      padding: 2rem;
+      border-radius: 10px;
+      box-shadow: 0px 2px 5px rgba(0,0,0,0.1);
+      width: 400px;
+      max-width: 90%;
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    .form-group label {
+      display: block;
+      margin-bottom: 5px;
+    }
+    .form-group input, .form-group select {
+      width: 100%;
+      padding: 8px;
+      margin-top: 5px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+    }
+    .form-inline button {
+      width: 100%;
+      padding: 10px;
+      background-color: #1890ff;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .form-inline button:hover {
+      background-color: #0056b3;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>卡密添加与查询</h2>
+
+    <!-- 选择卡密数量 -->
+    
+    <!-- 选择规格 -->
+    
+    <div class="form-group">
+      <label for="order_type">选择规格</label>
+      <select id="order_type" class="layui-input">
+        <option value="ct1">tv1</option>
+        <option value="hh1">h1</option>
+        <option value="hh3">h3</option>
+        <option value="hh12">h12</option>
+        <option value="cj1" selected>c1</option>
+        <option value="cj3">c3</option>
+        <option value="cj12">c12</option>
+      </select>
+    </div>
+
+    <!-- 选择价格 -->
+    <div class="form-group">
+      <label for="order_price">选择价格</label>
+      <select id="order_price" class="layui-input">
+        <!-- 动态填充的价格项 -->
+      </select>
+    </div>
+	<!-- 选择仓库 -->
+	
+    <!-- 提交按钮 -->
+    <div class="form-inline" style="display:flex;gap:10px;">
+  <!--<button id="submit_btn" style="flex:1 1 50%;">提交添加</button>-->
+  <button id="extract_btn" style="flex:1 1 50%;background-color:#52c41a;">提取卡密</button>
+</div>
+
+  </div>
+
+<script>
+layui.use(['layer'], function(){
+  const layer = layui.layer;
+
+  // 根据选择的规格更新价格选项
+  document.getElementById('order_type').addEventListener('change', function () {
+    const type = this.value;
+    const priceSelect = document.getElementById('order_price');
+    priceSelect.innerHTML = '';
+
+    const priceMap = {
+      'ct1': [9.9, 14.9],
+      'hh1': [3.8,5.8, 9.8, 10.8],
+      'hh3': [21.8, 23.8, 27.8],
+      'hh12': [92.8, 115],
+      'cj1': [9.9,11.8, 12.9, 14.9, 18.8],
+      'cj3': [32.8, 52.8],
+      'cj12': [128, 168]
+    };
+
+    const priceOptions = priceMap[type] || [];
+    priceOptions.forEach(price => {
+      const option = document.createElement('option');
+      option.value = price;
+      option.textContent = price;
+      priceSelect.appendChild(option);
+    });
+  });
+
+  // 初始化价格选项
+  document.getElementById('order_type').dispatchEvent(new Event('change'));
+
+  let isSubmitting = false;
+
+  // 下载文本文件
+  function downloadTxtFile(content, filename) {
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
+// 处理返回的卡密并弹出可复制提示
+function showCopyDialog(orderIDs) {
+  const lines = orderIDs.map(id => `第一步：手机浏览器打开兑换链接：https://cn123.vip\n第二步：提交兑换，兑换码：${id} `);
+  const fullText = `会员兑换流程：\n\n${lines.join('\n')}`;
+
+  const contentHTML = `
+    <div style="padding:16px;font-family:sans-serif;">
+      <div style="margin-bottom:10px;font-weight:bold;font-size:16px;color:#333;">
+        复制以下兑换信息
+      </div>
+      <textarea id="copyTextArea" readonly style="
+        width:100%;
+        height:180px;
+        border:1px solid #ddd;
+        border-radius:6px;
+        padding:10px;
+        font-size:14px;
+        line-height:1.5;
+        background-color:#f9f9f9;
+        color:#333;
+        resize:none;
+      ">${fullText}</textarea>
+      <button id="copyButton" class="layui-btn layui-btn-normal" style="
+        margin-top:16px;
+        width:100%;
+        height:40px;
+        font-size:16px;
+        border-radius:6px;
+      ">📋 点击复制内容</button>
+    </div>
+  `;
+
+  const index = layer.open({
+    type: 1,
+    title: '提取结果',
+    area: ['90%', '400px'],
+    shadeClose: true,
+    content: contentHTML
+  });
+
+  setTimeout(() => {
+    document.getElementById('copyTextArea').select();
+  }, 100);
+
+  // 兼容复制
+  $(document).off('click', '#copyButton').on('click', '#copyButton', function() {
+    const textArea = document.getElementById('copyTextArea');
+    const text = textArea.value;
+
+    // 尝试现代 Clipboard API
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => {
+        layer.msg('已复制到剪贴板 ✅', {icon: 1, time: 2000});
+        layer.close(index);
+      }).catch(() => {
+        fallbackCopy(textArea);
+      });
+    } else {
+      fallbackCopy(textArea);
+    }
+
+    function fallbackCopy(element) {
+      try {
+        element.removeAttribute('readonly');
+        element.select();
+        element.setSelectionRange(0, 99999);
+        const successful = document.execCommand('copy');
+        element.setAttribute('readonly', true);
+        if (successful) {
+          layer.msg('已复制到剪贴板 ✅', {icon: 1, time: 2000});
+          layer.close(index);
+        } else {
+          layer.msg('复制失败，请长按文本手动复制 ❌');
+        }
+      } catch (err) {
+        console.error('复制异常', err);
+        layer.msg('复制失败，请长按文本手动复制 ❌');
+      }
+    }
+  });
+}
+  // 提取卡密
+  document.getElementById('extract_btn').addEventListener('click', function () {
+    if (isSubmitting) {
+      layer.msg('请求处理中，请稍候...');
+      return;
+    }
+
+    
+    const type = document.getElementById('order_type').value;
+    const price = parseFloat(document.getElementById('order_price').value);
+    const count = 1;
+    const warehouse = 'admin';
+
+    if (!count || !type || !price) {
+      layer.alert("请填写完整信息！");
+      return;
+    }
+
+    isSubmitting = true;
+    document.getElementById('extract_btn').disabled = true;
+
+    const loadingIndex = layer.open({
+      type: 1,
+      shade: 0.3,
+      shadeClose: false,
+      title: false,
+      closeBtn: 0,
+      area: ['260px', '120px'],
+      offset: 'auto',
+      content: `
+        <div style="text-align:center;padding:20px;">
+          <div class="layui-icon layui-icon-loading layui-anim layui-anim-rotate layui-anim-loop" 
+              style="font-size:30px;color:#1890ff;"></div>
+          <div style="margin-top:10px;font-size:14px;color:#333;">请勿关闭，正在提取...</div>
+        </div>
+      `
+    });
+
+    fetch("/extract_order", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        order_count: count,
+        order_type: type,
+        order_price: price,
+        warehouse: warehouse
+      })
+    })
+    .then(res => res.json())
+.then(data => {
+  layer.close(loadingIndex);
+  if (data.success) {
+    if (data.order_ids && data.order_ids.length > 0) {
+      showCopyDialog(data.order_ids);
+    } else {
+      layer.alert("没有可用的兑换码，请稍后再试或检查库存。");
+    }
+  } else {
+    layer.alert("提取失败：" + data.error);
+  }
+})
+    .catch(err => {
+      console.error(err);
+      layer.close(loadingIndex);
+      layer.alert("请求出错：" + err.message);
+    })
+    .finally(() => {
+      isSubmitting = false;
+      document.getElementById('extract_btn').disabled = false;
+    });
+  });
+});
+</script>
+
+
+</body>

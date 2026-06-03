@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+<title>设备资金管理</title>
+
+<style>
+body{font-family:Arial;background:#f5f7fb;margin:0}
+.container{max-width:600px;margin:20px auto;padding:15px;background:#fff;border-radius:12px;box-shadow:0 4px 10px rgba(0,0,0,.08)}
+h1{text-align:center;color:#16a34a;margin:0 0 10px}
+
+/* ===== 设备余额条 ===== */
+.devices{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:15px}
+.dev{flex:1;min-width:80px;background:#16a34a;color:#fff;border-radius:10px;padding:8px;text-align:center;font-size:14px}
+.dev span{display:block;font-size:18px;font-weight:bold}
+
+/* ===== 表单 ===== */
+.group{margin-bottom:12px}
+.group input,.group select{width:100%;padding:10px;border-radius:8px;border:1px solid #ddd;font-size:15px}
+.btn{width:100%;padding:12px;border:none;border-radius:10px;background:#16a34a;color:#fff;font-size:16px;cursor:pointer;margin-bottom:10px}
+.btn:hover{background:#15803d}
+
+/* ===== 查询结果 ===== */
+.result{margin-top:10px;padding:12px;background:#f0f8ff;border-radius:10px;text-align:center;font-size:15px}
+</style>
+</head>
+
+<body>
+<div class="container">
+<h1>设备资金管理</h1>
+
+<!-- ===== 动态设备余额 ===== -->
+<div id="devices" class="devices"></div>
+
+<!-- ===== 转入 ===== -->
+<div class="group">
+<input type="number" id="fund_in" placeholder="转入金额" />
+</div>
+<div class="group">
+<select id="device_in"></select>
+</div>
+<button class="btn" onclick="transferFunds(true)">转入资金</button>
+
+<!-- ===== 转出 ===== -->
+<div class="group">
+<input type="number" id="fund_out" placeholder="转出金额" />
+</div>
+<div class="group">
+<select id="device_out"></select>
+</div>
+<button class="btn" onclick="transferFunds(false)">转出资金</button>
+
+<!-- ===== 查询 ===== -->
+<div class="group" style="display:flex;gap:6px">
+<input type="date" id="start_date" />
+<input type="date" id="end_date" />
+</div>
+<button class="btn" onclick="queryFunds()">查询资金统计</button>
+
+<div id="result" class="result">等待查询...</div>
+</div>
+
+<script>
+/* =====================
+   设备配置（以后只改这里）
+===================== */
+const DEVICES=[157,178,188,198,208,308];
+
+/* =====================
+   渲染设备UI
+===================== */
+function renderDevices(){
+  const wrap=document.getElementById('devices');
+  const inSel=document.getElementById('device_in');
+  const outSel=document.getElementById('device_out');
+
+  wrap.innerHTML=DEVICES.map(id=>`
+    <div class="dev" id="dev_${id}">
+      设备 ${id}
+      <span id="balance_${id}">--</span>
+    </div>
+  `).join('');
+
+  const opts=DEVICES.map(id=>`<option value="${id}">设备 ${id}</option>`).join('');
+  inSel.innerHTML=opts;
+  outSel.innerHTML=opts;
+}
+
+/* =====================
+   获取余额
+===================== */
+function fetchBalances(){
+  fetch('/phpapi/get_balances.php')
+    .then(r=>r.json())
+    .then(data=>{
+      DEVICES.forEach(id=>{
+        const el=document.getElementById('balance_'+id);
+        if(el && data['balance_'+id]!=null){
+          el.textContent=Math.floor(data['balance_'+id]);
+        }
+      });
+    })
+    .catch(console.error);
+}
+
+/* =====================
+   转入 / 转出
+===================== */
+function transferFunds(isIn){
+  const amount=parseFloat(document.getElementById(isIn?'fund_in':'fund_out').value);
+  const device=document.getElementById(isIn?'device_in':'device_out').value;
+
+  if(!amount||amount<=0) return alert('金额错误');
+
+  fetch(isIn?'/phpapi/transfer_in.php':'/phpapi/transfer_out.php',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({device_id:+device,amount})
+  })
+  .then(r=>r.json())
+  .then(d=>{
+    alert(`设备 ${device} 当前余额 ${Math.floor(d.balance)}`);
+    fetchBalances();
+  })
+  .catch(console.error);
+}
+
+/* =====================
+   查询统计
+===================== */
+function queryFunds(){
+  const s=start_date.value;
+  const e=end_date.value;
+  if(!s||!e) return alert('请选择日期');
+
+  fetch('/phpapi/fund_summary.php',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({start_date:s+' 00:00:00',end_date:e+' 23:59:59'})
+  })
+  .then(r=>r.json())
+  .then(d=>{
+    result.innerHTML=`
+      转入：${d.total_fund_in||0}<br>
+      手动转出：${d.total_manual_fund_out||0}<br>
+      自动转出：${d.total_auto_fund_out||0}<br>
+      总转出：${d.total_fund_out||0}`;
+  })
+  .catch(console.error);
+}
+
+/* =====================
+   初始化
+===================== */
+renderDevices();
+fetchBalances();
+setInterval(fetchBalances,5000);
+</script>
+</body>
+</html>

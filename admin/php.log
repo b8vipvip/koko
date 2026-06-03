@@ -1,0 +1,12 @@
+[2024-11-08 12:31:21] 请求的ID: 3288
+[2024-11-08 12:31:21] 查找c_status: 
+Found c_status: 1
+Update affected rows: 1
+Update successful for record ID: 3288
+[2024-11-08 12:31:26] 请求的ID: 3286
+[2024-11-08 12:31:26] 查找c_status: 
+Found c_status: 1
+Update affected rows: 1
+Update successful for record ID: 3286
+Update successful for record ID: 3287
+Interception failed for record ID: 3287, c_status is already 2

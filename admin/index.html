@@ -1,0 +1,1081 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+
+  <title>admin</title>
+
+  <!-- ✅ 保留一套 layui 样式，避免重复引入导致覆盖冲突 -->
+  <script src="/jquery.min.js"></script>
+  <script src="/layer-v3.5.1/layer/layer.js"></script>
+  <link rel="stylesheet" href="/layui-v2.11.2/layui/css/layui.css">
+  <script src="/layui-v2.11.2/layui/layui.js"></script>
+
+  <script src="/yuer.js"></script>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, initial-scale=1.0, user-scalable=no">
+  <link rel="stylesheet" href="list.css">
+  <!--新增自适应 -->
+</head>
+
+<style>
+  .myBox {
+    width: 100%;
+    overflow-x: hidden;
+    box-sizing: border-box;
+    position: relative;
+  }
+
+  .loginForm {
+    padding: 5px;
+  }
+
+  .usernameWrapDiv {
+    display: flex;
+  }
+
+  .usernameLabel {
+    width: 20%;
+    border: 1px solid #e6e6e6;
+    border-right: 0;
+    background-color: #e7e9ec;
+    color: #575758;
+    vertical-align: middle;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .usernameLabel1 {
+    width: 15%;
+    margin-right: 5px;
+
+    border: 1px solid #e6e6e6;
+    border-right: 0;
+    background-color: #e7e9ec;
+    color: #575758;
+    vertical-align: middle;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .yincang {
+    display: none;
+  }
+
+  .usernameLabel2 {
+    margin-right: 5px;
+    border: 1px solid #e6e6e6;
+    border-right: 0;
+    background-color: #e7e9ec;
+    color: white;
+    vertical-align: middle;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .usernameLabel3 {
+    width: 15%;
+    margin-left: 10px;
+    margin-right: 5px;
+    border: 1px solid #e6e6e6;
+    border-right: 0;
+    background-color: #e7e9ec;
+    color: #575758;
+    vertical-align: middle;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .usernameDiv {
+    width: 188px;
+    position: relative;
+    display: inline-block;
+  }
+
+  .passwordDiv {
+    width: 25%;
+  }
+
+  .orderIDDiv {
+    width: 45%;
+  }
+
+  .layui-form {
+    margin-right: 5px;
+  }
+
+  .usernameWrapDiv .layui-input {
+    border-top-right-radius: 0px !important;
+    border-bottom-right-radius: 0px !important;
+    padding-right: 15PX;
+  }
+
+  #UrlsID {
+    padding-right: 40px;
+  }
+
+  .v_box {
+    position: relative;
+  }
+
+  .fileBox {
+    width: 38px;
+    height: 38px;
+    position: absolute;
+    right: -1px;
+    top: -36px;
+  }
+
+  #file_btn {
+    width: 35px;
+    height: 35px;
+  }
+
+  #videoBox {
+    position: absolute;
+    top: 20px;
+    width: 100%;
+    box-sizing: border-box;
+    z-index: 10;
+    display: none;
+  }
+
+  .v_tips {
+    position: absolute;
+    top: 20px;
+    width: 100%;
+    box-sizing: border-box;
+    z-index: 11;
+    display: none;
+    color: #1E9FFF;
+    text-align: center;
+    font-weight: bold;
+    font-size: 26px;
+  }
+
+  /* 设置单选按钮的横向间距 */
+  .radioGroup label {
+    margin-right: 8px;
+    display: inline-block;
+    /* 确保它们在同一行显示 */
+  }
+
+    #details-container {
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+      overflow-x: hidden;
+    }
+    
+    .details-info {
+      width: 100%;
+      max-width: 100%;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      box-sizing: border-box;
+    }
+
+  /* 设置订单号输入框预选信息样式*/
+  #presetList {
+    display: none;
+    position: absolute;
+    top: 35px;
+    width: 120px;
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid #ccc;
+    background-color: white;
+    z-index: 1000;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    -webkit-overflow-scrolling: touch;
+    /* iOS平滑滚动 */
+  }
+
+  .preset-item {
+    padding: 14px 16px;
+    font-size: 16px;
+    border-bottom: 1px solid #f0f0f0;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .preset-item:last-child {
+    border-bottom: none;
+  }
+
+  .preset-item:active {
+    background-color: #f2f2f2;
+  }
+
+  .preset-item:hover {
+    background-color: #e8f4ff;
+  }
+
+  .preset-item .spech {
+    color: orange;
+    font-weight: bold; /* ✅ 修复：font-style:bold 无效 */
+  }
+
+  .preset-item .specc {
+    color: #1E9FFF;
+    font-weight: bold; /* ✅ 修复：font-style:bold 无效 */
+  }
+
+  #tokenID {
+    padding-right: 2px;
+    width: 180px;
+  }
+
+  .sendCodeBtn {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    border: none;
+    background: none;
+    padding: 0;
+    color: #1E9FFF;
+    cursor: pointer;
+    font-size: 14px;
+    padding-right: 8px;
+  }
+
+  .search-bar input[type="text"] {
+    width: 39%;
+    padding: 2px;
+    font-size: 14px;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    margin-right: 5px;
+  }
+  /* ===== 设备条（方案2：自动渲染） ===== */
+#devicesBar{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+}
+
+/* 设备条布局 */
+#devicesBar{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.devBox{ display:flex; align-items:center; }
+
+/* 关键：devBadge 做相对定位，里面有一块灯(label) + 一层文字(span) */
+.devBadge{
+  position: relative;
+  display: inline-block;
+}
+
+/* 颜色块本体：只负责背景色 */
+.devBadge .statusLight{
+  display:block;
+  width:58px;     /* 你4位数值够用，不够就加大 */
+  height:28px;
+  border:1px solid #e6e6e6;
+  border-radius:6px;
+  background:#000;   /* 默认黑 */
+  box-sizing:border-box;
+}
+
+/* 余额文字层：绝对定位盖在颜色块上 */
+.devBadge .balanceText{
+  position:absolute;
+  left:12px; top:3px; right:5px; bottom:5px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  color:#fff;
+  font-weight:700;
+  font-size:14px;
+  pointer-events:none; /* 防止挡点击 */
+}
+/*.profit-query{*/
+/*    margin-top:5px ;*/
+/*}*/
+</style>
+
+<body>
+  <div class="myBox">
+    <div id="videoBox">
+      <video id="video" width="100%" height="100%" autoplay="" playsinline muted></video>
+      <div class="v_tips">手动充值管理</div>
+    </div>
+
+    <div class="loginForm">
+      <form>
+
+        <div class="usernameWrapDiv" id="devicesBar"></div>
+
+        <br>
+
+        <div class="profit-query">
+          <label for="profit-range">统计：</label>
+          <select id="profit-range" onchange="toggleDateInput()">
+            <option value="today">当天</option>
+            <option value="week">当周</option>
+            <option value="month">当月</option>
+            <option value="total">总</option>
+            <option value="specific">指定日期</option>
+          </select>
+
+          <input type="date" id="specific-date" style="display:none;" />
+
+          <button type="button" onclick="queryProfit()">查询</button>
+        </div>
+
+        <br>
+
+        <div style="text-align:center;color:#FF0000" id="tip2">
+          <h2></h2>
+        </div>
+        <div style="text-align:center;color:#FF0000;" id="tip1"></div>
+
+        <div class="usernameWrapDiv">
+          <div class="usernameLabel">
+            <label>手机号:</label>
+          </div>
+
+          <div class="usernameDiv">
+            <input id="tokenID" class="layui-input adminInput" type="text" name="token" placeholder="输入手机">
+            <button type="button" class="sendCodeBtn" id="getCodeBtn" onclick="getCode()">发验证码</button>
+          </div>
+
+          <div class='zh' style="margin-right: 5px;">
+            <select id="zhanghu" lay-filter="demo-select-filter" style="margin-left: 2px">
+              <option value="zh1">账户1</option>
+              <option value="zh2">账户2</option>
+              <option value="zh3">账户3</option>
+            </select>
+          </div>
+        </div>
+
+        <br>
+
+        <div class="usernameWrapDiv">
+          <div class="usernameLabel">
+            <label>验证码:</label>
+          </div>
+
+          <div class="passwordDiv">
+            <input id="UrlsID" class="layui-input adminInput" type="text" name="url" placeholder=""
+              style="width: 75px;padding-right: 0px;padding-left:5px">
+          </div>
+
+          <div class="usernameLabel">
+            <label>订单号:</label>
+          </div>
+
+          <div class="orderIDDiv" style="position: relative;">
+            <input id="orderID" class="layui-input adminInput" type="text" name="url" placeholder=""
+              style="width: 115px;">
+
+            <!-- 预设信息列表 -->
+            <div id="presetList">
+              <div class="preset-item" data-order="99888">9.9 <span class="specc">c1</span></div>
+              <div class="preset-item" data-order="88888">8.8 <span class="specc">c1</span></div>
+              <div class="preset-item" data-order="149888">14.9 <span class="specc">c1</span></div>
+              <div class="preset-item" data-order="58888">5.8 <span class="spech">h1</span></div>
+              <div class="preset-item" data-order="98888">9.8 <span class="spech">h1</span></div>
+              <div class="preset-item" data-order="119888">11.9 <span class="specc">c1</span></div>
+              <div class="preset-item" data-order="129888">12.9 <span class="specc">c1</span></div>
+              <div class="preset-item" data-order="188888">18.8 <span class="specc">c1</span></div>
+              <div class="preset-item" data-order="328888">32.8 <span class="specc">c3</span></div>
+              <div class="preset-item" data-order="528888">52.8 <span class="specc">c3</span></div>
+              <div class="preset-item" data-order="125888">125 <span class="specc">c12</span></div>
+              <div class="preset-item" data-order="128888">128 <span class="specc">c12</span></div>
+              <div class="preset-item" data-order="278888">27.8 <span class="spech">h3</span></div>
+              <div class="preset-item" data-order="238888">23.8 <span class="spech">h3</span></div>
+              <div class="preset-item" data-order="928888">92.8 <span class="spech">h12</span></div>
+              <div class="preset-item" data-order="168888">168 <span class="specc">c12</span></div>
+
+              <div class="preset-item" data-order="88888tv">8.8 <span class="spech">tv1</span></div>
+              <div class="preset-item" data-order="99888tv">9.9 <span class="spech">tv1</span></div>
+              <div class="preset-item" data-order="149888tv">14.9 <span class="spech">tv1</span></div>
+              <div class="preset-item" data-order="115888">115 <span class="spech">h12</span></div>
+            </div>
+          </div>
+        </div>
+
+        <br>
+
+        <!-- ✅ 给发送按钮加 id，后面逻辑用它来禁用/恢复 -->
+        <button id="sendBtn" type="button" onclick="confirmSelection()" class="layui-btn layui-bg-blue">发送</button>
+         <span id="fetch0CountBox" style="margin-left:12px; font-size: 14px; color:#666;">
+              券：<b id="fetch0Count" style="color:#f5222d;">0</b>
+            </span>
+        <div class="yincang">
+          <div class="usernameWrapDiv">
+            <div class="usernameLabel">
+              <label>会员规格:</label>
+            </div>
+
+            <!-- select 下拉框 -->
+            <select id="huiyuanguize" lay-filter="demo-select-filter" style="margin-right: 30px;"
+              onchange="syncRadioFromSelect()">
+              <option value="hh1a">HH一月9.8</option>
+              <option value="hh1b">HH一月5.8</option>
+              <option value="hh3a">HH三月23.8</option>
+              <option value="hh3b">HH三月27.8</option>
+              <option value="cj1a">CJ一月11.9</option>
+              <option value="cj1c">CJ一月8.8</option>
+              <option value="cj1b">CJ一月14.9</option>
+              <option value="hh12a">HH一年92.8</option>
+              <option value="hh12b">HH一年115</option>
+              <option value="cj3a">CJ三月32</option>
+              <option value="cj3b">CJ三月45</option>
+              <option value="cj12a">CJ一年128</option>
+              <option value="cj12b">CJ一年158</option>
+              <option value="no">不开通</option>
+            </select>
+          </div>
+
+          <br>
+
+          <!-- 单选按钮组 -->
+          <div class="radioGroup">
+            <div>
+              <label><input type="radio" name="membership" value="hh1b" id="radio-hh1b"
+                  onclick="syncSelectFromRadio()">h5.8</label>
+              <label><input type="radio" name="membership" value="hh1a" id="radio-hh1a"
+                  onclick="syncSelectFromRadio()" checked>h9.8</label>
+              <label><input type="radio" name="membership" value="hh3a" id="radio-hh3a"
+                  onclick="syncSelectFromRadio()">h23</label>
+              <label><input type="radio" name="membership" value="hh3b" id="radio-hh3b"
+                  onclick="syncSelectFromRadio()">h27</label>
+              <label><input type="radio" name="membership" value="hh12a" id="radio-hh12a"
+                  onclick="syncSelectFromRadio()">h92</label>
+            </div>
+            <br>
+            <div>
+              <label><input type="radio" name="membership" value="cj1c" id="radio-cj1c"
+                  onclick="syncSelectFromRadio()">c8.8</label>
+              <label><input type="radio" name="membership" value="cj1a" id="radio-cj1a"
+                  onclick="syncSelectFromRadio()">c12</label>
+              <label><input type="radio" name="membership" value="cj1b" id="radio-cj1b"
+                  onclick="syncSelectFromRadio()">c14</label>
+              <label><input type="radio" name="membership" value="cj3a" id="radio-cj3a"
+                  onclick="syncSelectFromRadio()">c32</label>
+              <label><input type="radio" name="membership" value="cj3b" id="radio-cj3b"
+                  onclick="syncSelectFromRadio()">c45</label>
+              <label><input type="radio" name="membership" value="cj12a" id="radio-cj12a"
+                  onclick="syncSelectFromRadio()">c128</label>
+            </div>
+          </div>
+
+          <div class="usernameWrapDiv">
+            <div class="layui-form">
+              <input type="checkbox" id="shougong" title="查询价格">
+            </div>
+
+            <div class="layui-form">
+              <input type="checkbox" id="applogin" title="app登录" checked>
+            </div>
+
+            <div class="layui-form">
+              <input type="checkbox" id="qdzhb" title="自己的券" checked>
+            </div>
+          </div>
+
+          <br>
+
+          <div class="usernameWrapDiv">
+            <div class="layui-form">
+              <input type="checkbox" id="init" title="发验证码">
+            </div>
+
+            <div class="layui-form">
+              <input type="checkbox" id="weblog" title="web登录" checked>
+            </div>
+
+            <div class="layui-form">
+              <input type="checkbox" id="lingqu3" title="领3天卷">
+            </div>
+          </div>
+
+          <div class="usernameLabel">
+            <label>会员规格:</label>
+          </div>
+
+          <select id="yzm_status" lay-filter="demo-select-filter" style="margin-right: 30px;">
+            <option value="3" selected>yzm_status</option>
+          </select>
+        </div>
+
+        <div class="container">
+          <div class="header"></div>
+
+          <div class="search-bar" style="margin-top: 10px;">
+            <input type="text" placeholder="输入手机号或兑换码" id="search-input">
+            <button type="button" onclick="searchRecords()">搜索</button>
+            <button type="button" onclick="clockorderID()" style="margin-left: 15px;">锁定</button>
+            <button type="button" onclick="unclockorderID()" style="margin-left: 15px;">解锁</button>
+           
+          </div>
+
+          <table class="table">
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>手机号</th>
+                <th>账户</th>
+                <th>规格</th>
+                <th>状态</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="data-table"></tbody>
+          </table>
+
+          <div class="pagination">
+            <a href="#" onclick="goHome()">首页</a>
+            <a href="#" id="prevPage" onclick="changePage(-1)">上一页</a>
+            <span id="pageInfo">第 1 页</span>
+            <a href="#" id="nextPage" onclick="changePage(1)">下一页</a>
+          </div>
+
+          <div id="details-container" style="display: none;">
+            <h3>充值详情：</h3>
+            <p id="details-info" class="details-info"></p>
+
+            <div class="horizontal-container">
+              <a id="details-img1-link" target="_blank">充值前截图</a>
+              <a id="details-img2-link" target="_blank">充值后截图</a>
+              <button id="copy-message-btn" type="button">复制消息</button>
+              <button id="sd-czcg-btn" type="button">手动成功</button>
+            </div>
+          </div>
+        </div>
+
+      </form>
+    </div>
+  </div>
+
+  <!-- 引用外部 JavaScript 文件 -->
+  <script src="r_status.js"></script>
+  <script src="list.js"></script>
+
+  <script>
+    // 同步 select 选项
+    function syncSelect(value) {
+      var selectElement = document.getElementById("huiyuanguize");
+      selectElement.value = value;
+    }
+
+    // 同步单选按钮
+    function syncRadioFromSelect() {
+      var selectElement = document.getElementById("huiyuanguize");
+      var selectedValue = selectElement.value;
+      var radioButton = document.getElementById("radio-" + selectedValue);
+
+      if (radioButton) {
+        radioButton.checked = true;
+      }
+    }
+
+    // 同步select下拉框
+    function syncSelectFromRadio() {
+      var radioButtons = document.getElementsByName("membership");
+      var selectElement = document.getElementById("huiyuanguize");
+
+      for (var i = 0; i < radioButtons.length; i++) {
+        if (radioButtons[i].checked) {
+          selectElement.value = radioButtons[i].value;
+          break;
+        }
+      }
+    }
+
+    // 定义一个函数，用于更新 checkbox 的 checked 属性
+    function updateCheckboxChecked() {
+      const checkbox = document.getElementById('lingqu3');
+      if (!checkbox) return;
+
+      const now = new Date();
+      const hours = now.getHours();
+
+      // ✅ 注释纠正：实际逻辑是 8:00-22:00
+      if (hours >= 7 && hours < 24) {
+        checkbox.checked = true;
+      } else {
+        checkbox.checked = false;
+      }
+    }
+
+    // 页面加载时执行一次
+    updateCheckboxChecked();
+    // 每分钟检查一次
+    setInterval(updateCheckboxChecked, 60000);
+
+    chongzhitype = "";
+    token = getQueryVariable('token');
+    document.getElementById('tokenID').value = token;
+
+    function getQueryVariable(variable) {
+      var query = window.location.search.substring(1);
+      var vars = query.split("&");
+      for (var i = 0; i < vars.length; i++) {
+        var pair = vars[i].split("=");
+        if (pair[0] == variable) {
+          // ✅ decode，避免 token/参数被编码后取值不正确
+          return decodeURIComponent(pair[1] || '');
+        }
+      }
+      return ('');
+    }
+
+    // ✅ 保留这一份 confirmSelection（删除了上面那份 alert 版本，避免函数覆盖）
+    function confirmSelection() {
+      var zhanghu = document.getElementById("zhanghu").value;
+      var zhanghuText = document.getElementById("zhanghu").options[document.getElementById("zhanghu").selectedIndex].text;
+
+      layer.confirm('确认账户：' + zhanghuText + '<br>' + '&nbsp;'.repeat(35), {
+        btn: ['重选', '确定']
+      },
+        function () {
+          layer.closeAll();
+        }, function () {
+          fasong();
+          layer.msg("提交成功");
+          loadRecords();
+        });
+    }
+
+    function fasong() {
+      var token = document.getElementById("tokenID").value;
+      var UrlsID = document.getElementById("UrlsID").value;
+      var orderID = document.getElementById("orderID").value;
+      var zhanghu = document.getElementById("zhanghu").value;
+      var huiyuanguize = document.getElementById("huiyuanguize").value;
+      var lingqu3 = document.getElementById("lingqu3").checked;
+      var shougong = document.getElementById("shougong").checked;
+      var qdzhb = document.getElementById("qdzhb").checked;
+      var applogin = document.getElementById("applogin").checked;
+      var weblog = document.getElementById("weblog").checked;
+      var init = document.getElementById("init").checked;
+      var yzm_status = document.getElementById("yzm_status").value;
+
+      console.log(token + "::" + init)
+
+      if (token == '' || token == '请输入手机号') {
+        layer.msg('请输入手机号');
+        return;
+      } else if (!/^1[3-9]\d{9}$/.test(token)) {
+        layer.msg('请输入正确的11位手机号');
+        return;
+      }
+
+      if (UrlsID == '' || UrlsID == '验证码') {
+        layer.msg('请输入验证码');
+        return;
+      } else if (!/^\d{6}$/.test(UrlsID)) {
+        layer.msg('请输入6位验证码');
+        return;
+      }
+
+      // ✅ 发送中禁用“发送”按钮，避免重复提交
+      $('#sendBtn').addClass("layui-btn-disabled").attr('disabled', true);
+
+      var load = layer.load(1, {
+        content: '正在保存......',
+        shade: [0.4, '#393D49'],
+        success: function (layero) {
+          layero.find('.layui-layer-content').css({
+            'margin-top': '100px',
+            'left': '5px',
+            'padding-top': '50px',
+            'width': '250px',
+            'color': '#FFFFFF',
+            'font-size': '2em',
+          });
+        }
+      });
+
+      // 在订单号后加上后缀
+      const SUFFIX = 'dBwMIsyheablLICf'; // 如不需要，置为空字符串
+
+      // ✅ 修复：判断前三位是否含字母（原来只判断第1个字符）
+      const hasLetterInFirst3 = /[A-Za-z]/.test((orderID || '').slice(0, 3));
+
+      if (!hasLetterInFirst3) {
+        if (SUFFIX && !(orderID || '').endsWith(SUFFIX)) {
+          orderID += SUFFIX;
+        }
+      }
+
+      $.ajax({
+        url: "api",
+        type: "post",
+        contentType: "application/json",
+
+        // ✅ 修复：timeout 必须写在 ajax 配置里（原来写进了 data JSON 里，完全无效）
+        timeout: 600000,
+
+        data: JSON.stringify({
+          'token': token,
+          'UrlsID': UrlsID,
+          'orderID': orderID,
+          'zhanghu': zhanghu,
+          'huiyuanguize': huiyuanguize,
+          'lingqu3': lingqu3,
+          'shougong': shougong,
+          'qdzhb': qdzhb,
+          'applogin': applogin,
+          'weblog': weblog,
+          'init': init,
+          'yzm_status': yzm_status,
+          'type': 'fasong'
+        }),
+
+        success: function (response) {
+          layer.close(load);
+
+          if (response && response.code == 200) {
+            document.getElementById('tip2').innerHTML = response.msg
+            document.getElementById('tip1').innerHTML = "【请勿重复发送】"
+            // 成功后继续禁用 sendBtn（你原逻辑是防止重复发送）
+            $('#sendBtn').addClass("layui-btn-disabled").attr('disabled', true);
+          } else {
+            document.getElementById('tip1').innerHTML = "登录失败"
+            document.getElementById('tip2').innerHTML = "失败原因：" + (response ? response.msg : "未知错误")
+            $('#sendBtn').removeClass("layui-btn-disabled").attr('disabled', false);
+          }
+        },
+
+        // ✅ 修复：jQuery error 参数不是 data.msg
+        error: function (xhr, status, error) {
+          layer.close(load);
+
+          let msg = '';
+          if (xhr && xhr.responseJSON && (xhr.responseJSON.msg || xhr.responseJSON.message)) {
+            msg = xhr.responseJSON.msg || xhr.responseJSON.message;
+          } else if (xhr && xhr.responseText) {
+            msg = xhr.responseText;
+          } else if (error) {
+            msg = error;
+          } else {
+            msg = '请求失败';
+          }
+
+          layer.msg(msg);
+          $('#sendBtn').removeClass("layui-btn-disabled").attr('disabled', false);
+        }
+      });
+    }
+
+    /*---------------------------------------------------------------------------------------*/
+
+    // 自动全选输入框内容（保留你原行为：focus 时清空）
+    function enableAutoSelect(id) {
+      const input = document.getElementById(id);
+      if (input) {
+        input.addEventListener('focus', function () {
+          //this.select();
+          this.value = '';
+        });
+      }
+    }
+
+    // 粘贴时只提取手机号（11位数字）
+    function extractPhoneOnPaste(id) {
+      const input = document.getElementById(id);
+      if (input) {
+        input.addEventListener('paste', function (e) {
+          e.preventDefault();
+          const pasted = (e.clipboardData || window.clipboardData).getData('text');
+          const phone = pasted.match(/1\d{10}/);
+          this.value = phone ? phone[0] : '';
+        });
+      }
+    }
+
+    // 粘贴时只提取6位数字验证码
+    function extractCodeOnPaste(id) {
+      const input = document.getElementById(id);
+      if (input) {
+        input.addEventListener('paste', function (e) {
+          e.preventDefault();
+          const pasted = (e.clipboardData || window.clipboardData).getData('text');
+          const code = pasted.match(/\d{6}/);
+          this.value = code ? code[0] : '';
+        });
+      }
+    }
+
+    // 应用到你的输入框
+    enableAutoSelect('tokenID');
+    enableAutoSelect('UrlsID');
+    extractPhoneOnPaste('tokenID');
+    extractCodeOnPaste('UrlsID');
+    enableAutoSelect('search-input');
+
+    const input = document.getElementById('orderID');
+    const presetList = document.getElementById('presetList');
+    // 点击输入框时显示预设列表
+    input.addEventListener('focus', () => {
+      presetList.style.display = 'block';
+    });
+
+    // 点击预设项时仅填入 data-order 的值
+    document.querySelectorAll('.preset-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const order = item.getAttribute('data-order');
+        input.value = order;
+        presetList.style.display = 'none';
+      });
+    });
+
+    // 点击输入框外隐藏列表
+    document.addEventListener('click', function (event) {
+      if (!document.querySelector('.orderIDDiv').contains(event.target)) {
+        presetList.style.display = 'none';
+      }
+    });
+
+    // 自动清除输入框内容通用函数
+    function removeSpacesOnInput(id) {
+      const input = document.getElementById(id);
+      if (input) {
+        input.addEventListener('input', function () {
+          this.value = this.value.replace(/\s+/g, '');
+        });
+      }
+    }
+
+    // 应用于需要清理空格的输入框
+    removeSpacesOnInput('tokenID');
+    removeSpacesOnInput('UrlsID');
+    removeSpacesOnInput('orderID');
+    removeSpacesOnInput('search-input');
+
+    function showSpinner(msg) {
+      return layer.load(1, { content: msg, shade: [0.4, '#000'] });
+    }
+    function hideSpinner() {
+      layer.closeAll('loading');
+    }
+
+    function getCode() {
+      const phone = $('#tokenID').val().trim();
+      if (!/^1[3-9]\d{9}$/.test(phone)) return layer.msg("请输入正确的11位手机号");
+
+      // 先调用后端检查是否允许发送验证码
+      $.get('/check_send_interval', { phone }, res => {
+        if (!res.valid) {
+          return layer.msg(res.msg || "请稍后再试");
+        }
+
+        // 如果允许发送，则执行发送逻辑
+        $('#getCodeBtn').prop('disabled', true);
+        const data = {
+          token: phone, UrlsID: "", orderID: "无", zhanghu: "no",
+          huiyuanguize: "0", lingqu3: "0", shougong: "0", qdzhb: "0",
+          applogin: "0", weblog: "0", init: "1", yzm_status: "1", type: "fasong"
+        };
+
+        const idx = showSpinner("正在发送验证码...");
+        $.ajax({
+          url: "/sfyzm", type: "POST", contentType: "application/json",
+          data: JSON.stringify(data),
+          success: res => {
+            hideSpinner();
+            layer.msg(res.msg || "验证码已发送");
+            startCodeTimer();
+          },
+          error: (xhr, status, error) => {
+            hideSpinner();
+            layer.msg((xhr && xhr.responseText) ? xhr.responseText : "发送失败");
+            $('#getCodeBtn').prop('disabled', false);
+          }
+        });
+      });
+    }
+
+    function startCodeTimer() {
+      const btn = $('#getCodeBtn');
+      let t = 3;
+      btn.text("重发(" + t + "s)");
+      const timer = setInterval(() => {
+        if (--t <= 0) {
+          clearInterval(timer);
+          btn.text("发验证码").prop('disabled', false);
+        } else {
+          btn.text("重发(" + t + "s)");
+        }
+      }, 1000);
+    }
+    // ✅ 设备配置：以后新增设备只加一行
+const DEVICES = [
+  { key: 'device1', dev: 157 },
+  { key: 'device2', dev: 178 },
+  { key: 'device3', dev: 188 },
+  { key: 'device4', dev: 198 },
+  { key: 'device5', dev: 208 },
+  { key: 'device6', dev: 308 },
+];
+function renderDevices() {
+  const bar = document.getElementById('devicesBar');
+  if (!bar) return;
+
+  bar.innerHTML = DEVICES.map(d => `
+    <div class="devBox" id="dev_${d.dev}">
+      <span class="devBadge" id="${d.key}Status" title="dev=${d.dev}">
+        <label class="statusLight"></label>
+        <span class="balanceText" id="balance_${d.dev}">----</span>
+      </span>
+    </div>
+  `).join('');
+}
+
+
+function updateStatus() {
+  fetch('/dev.php')
+    .then(r => r.json())
+    .then(data => {
+      
+      DEVICES.forEach(d => {
+        const obj = data[d.key];
+        if (!obj) return;
+
+        const wrap = document.getElementById(d.key + 'Status');
+        const label = wrap ? wrap.querySelector('label') : null;
+        const balanceEl = document.getElementById('balance_' + d.dev);
+
+        // 状态色 + 强制字体白色
+        if (label) {
+          label.style.backgroundColor = obj.background || 'black';
+          label.style.color = '#fff';
+        }
+        if (balanceEl) {
+          balanceEl.style.color = '#fff';
+          balanceEl.style.opacity = '1';
+          balanceEl.style.visibility = 'visible';
+          balanceEl.style.display = 'inline';
+        }
+
+        // 写入余额（整数）
+        if (balanceEl && obj.balance !== undefined && obj.balance !== null && String(obj.balance).trim() !== '') {
+          const n = Number(obj.balance);
+          balanceEl.textContent = Number.isFinite(n) ? Math.floor(n) : 0;
+        }
+      });
+    })
+    .catch(err => console.error("fetch 请求失败：", err));
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  renderDevices();
+  updateStatus();
+  setInterval(updateStatus, 20000); // 你按需改频率
+});
+function updateFetch0Count() {
+  fetch('/fetch0_count.php')
+    .then(r => r.json())
+    .then(res => {
+      const el = document.getElementById('fetch0Count');
+      if (!el) return;
+
+      // 兼容后端返回 {count: 123} 或直接数字
+      const n = (res && typeof res === 'object') ? Number(res.count) : Number(res);
+      el.textContent = Number.isFinite(n) ? n : '0';
+    })
+    .catch(() => {
+      // 不要弹窗，避免干扰；失败时保持原值或显示 -
+      const el = document.getElementById('fetch0Count');
+      if (el) el.textContent = '-';
+    });
+}
+
+// 页面加载先跑一次，然后每 5 秒刷新
+document.addEventListener('DOMContentLoaded', () => {
+  updateFetch0Count();
+  setInterval(updateFetch0Count, 20000);
+});
+
+(function bindSearchInputExtractorMobileSafe() {
+  const el = document.getElementById('search-input');
+  if (!el) return;
+
+  // 兑换码规则：字母数字下划线/中划线，长度 6-64
+  const codeRe = /[a-zA-Z0-9_-]{6,64}/;
+
+  function extractAndSet(raw, reason) {
+    const text = String(raw || '');
+
+    // 1) 先提取兑换码
+    const codeMatch = text.match(codeRe);
+    if (codeMatch) {
+      el.value = codeMatch[0];
+      console.log(`📥 search-input 提取兑换码（${reason}）：`, el.value);
+      return true;
+    }
+
+    // 2) 再兜底提取手机号
+    const cleanedDigits = text.replace(/\D/g, '');
+    const phoneMatch = cleanedDigits.match(/1[3-9]\d{9}/);
+    if (phoneMatch) {
+      el.value = phoneMatch[0];
+      console.log(`📥 search-input 提取手机号（${reason}）：`, el.value);
+      return true;
+    }
+
+    // 3) 都提取不到就去空白（可选）
+    el.value = text.replace(/\s+/g, '').trim();
+    console.warn(`⚠️ search-input 未识别到兑换码/手机号（${reason}），已去空白：`, el.value);
+    return false;
+  }
+
+  // ✅ PC：能读到 clipboardData 就直接用
+  el.addEventListener('paste', function (e) {
+    const cd = e.clipboardData || window.clipboardData;
+    const clipText = cd && cd.getData ? cd.getData('text') : '';
+
+    if (clipText) {
+      // PC/部分安卓能拿到剪贴板：直接提取，并阻止默认粘贴避免闪一下
+      e.preventDefault();
+      extractAndSet(clipText, 'paste-clipboard');
+
+      // ✅ 如果你还想同步到 query_phone，就保留；不需要就删掉这段
+      const q = document.getElementById('query_phone');
+      if (q) q.value = el.value;
+
+      window.__queryEditingLockUntil = Date.now() + 10 * 1000;
+      return;
+    }
+
+    // ✅ 手机端常见：拿不到剪贴板内容 → 不阻止默认粘贴
+    setTimeout(() => {
+      extractAndSet(el.value, 'paste-fallback');
+
+      const q = document.getElementById('query_phone');
+      if (q) q.value = el.value;
+
+      window.__queryEditingLockUntil = Date.now() + 10 * 1000;
+    }, 0);
+  });
+
+  // ✅ 兜底：部分手机粘贴不触发 paste / clipboardData 为空
+  el.addEventListener('input', function () {
+    const v = String(el.value || '');
+    // 只有当包含“非典型字符”（中文/空格/标点等）时才提取，避免影响正常输入
+    if (/[^\w-]/.test(v)) {
+      extractAndSet(v, 'input-sanitize');
+
+      const q = document.getElementById('query_phone');
+      if (q) q.value = el.value;
+    }
+  });
+})();
+
+
+  </script>
+
+</body>
+</html>
