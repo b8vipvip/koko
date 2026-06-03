@@ -31,7 +31,7 @@ CORS(
     app,
     origins=[origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:8000").split(",") if origin.strip()],
     methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "X-Idempotency-Key", "X-Requested-With"]
+    allow_headers=["Content-Type", "X-Idempotency-Key", "X-Requested-With", "X-Admin-Token", "Authorization"]
 )
 
 last_user_submit_time = time.time()
@@ -539,7 +539,8 @@ def process_user_record(record_id):
 
     except Exception as e:
         logger.error(f"处理异常: {e}")
-        return {'status': 'error', 'message': str(e)}
+        logger.exception('getcode_record failed')
+        return {'status': 'error', 'message': '服务器错误'}
 
 def getcode_record(phone):
     try:

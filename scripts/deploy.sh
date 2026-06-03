@@ -24,6 +24,13 @@ fi
 
 cd "$APP_DIR"
 mkdir -p logs
+if id www >/dev/null 2>&1; then
+  log "Setting logs ownership to www:www"
+  chown -R www:www "$APP_DIR/logs"
+else
+  warn "User www does not exist; create it or adjust deploy/koko.service User/Group before starting systemd."
+  warn "Logs directory exists at $APP_DIR/logs, but ownership was not changed."
+fi
 
 if [[ ! -d .venv ]]; then
   log "Creating Python virtualenv"

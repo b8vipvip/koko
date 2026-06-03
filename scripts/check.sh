@@ -32,6 +32,54 @@ for path in Path('migrations').glob('*.sql'):
     print(f'{path}: safety lint ok')
 PY
 
+
+printf '[check] Secret regression scan\n'
+if rg -n 'password\s*=\s*["'"'"']HP77|user\s*=\s*["'"'"']kaaa|database\s*=\s*["'"'"']kaaa' server/*.py; then
+  printf 'Hardcoded database credential regression found.\n' >&2
+  exit 1
+fi
+
+printf '[check] Admin route protection scan\n'
+python - <<'PY'
+from pathlib import Path
+text = Path('server/kugo_mergedl.py').read_text()
+protected = [
+    '/lock_order',
+    '/unlock_order',
+    '/extract_order_ids',
+    '/extract_order',
+    '/mark_order_used',
+    '/submit_order',
+    '/uporderid_status',
+    '/code_upload_batch',
+    '/code_fetch',
+]
+missing = []
+for route in protected:
+    marker = f"@app.route('{route}'"
+    idx = text.find(marker)
+    if idx == -1:
+        missing.append(f'{route}: route not found')
+        continue
+    func_idx = text.find('def ', idx)
+    block = text[idx:func_idx]
+    if '@admin_required' not in block:
+        missing.append(f'{route}: missing @admin_required')
+if missing:
+    raise SystemExit('\n'.join(missing))
+print('admin route protection ok')
+PY
+
+printf '[check] CORS admin headers scan\n'
+python - <<'PY'
+from pathlib import Path
+for path in [Path('server/kugo_mergedl.py'), Path('server/app_optimized-cdp.py')]:
+    text = path.read_text()
+    if 'X-Admin-Token' not in text or 'Authorization' not in text:
+        raise SystemExit(f'{path}: CORS allow_headers missing X-Admin-Token/Authorization')
+    print(f'{path}: CORS headers ok')
+PY
+
 printf '[check] Optional import smoke test (skipped unless RUN_IMPORT_SMOKE=1)\n'
 if [[ "${RUN_IMPORT_SMOKE:-0}" == "1" ]]; then
   python - <<'PY'

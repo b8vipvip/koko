@@ -111,3 +111,12 @@ rsync -av --delete usrvip/ "$USRVIP_ROOT/"
 - 确认 `order_id.orderID` 和 `order_data_anj.orderID` 是否允许重复；如不允许，应先做重复数据报表，再人工加唯一索引。
 - 确认 PHP 后台 `admin/db.php`、`admin/dbclass.php` 是否也含生产凭据；本次未重写 PHP 数据层，避免破坏现有宝塔站点。
 - 确认管理员接口鉴权落地方式：短期建议 Nginx IP 白名单/Basic Auth；中期再让前端发送 `ADMIN_API_TOKEN`。
+
+## 9. 本次止血修复补充
+
+- `server/kugo_mergedl.py` 已统一通过 `get_db_connection()` 使用环境变量数据库配置，新增检查脚本会阻止 `password="HP77"`、`user="kaaa"`、`database="kaaa"` 等硬编码凭据回归。
+- 危险管理接口已统一要求 `Header: X-Admin-Token`，且 `ADMIN_API_TOKEN` 未配置时拒绝访问，不默认放行；覆盖 `/lock_order`、`/unlock_order`、`/extract_order_ids`、`/extract_order`、`/mark_order_used`、`/submit_order`、`/uporderid_status`、`/code_upload_batch`、`/code_fetch`。
+- `/extract_order_ids` 已改为事务内 `SELECT ... FOR UPDATE` 后按主键更新库存领取状态，避免多个管理员并发重复提取同一批兑换码。
+- `/lock_order` 与 `/unlock_order` 现在在同一事务内锁定并同步更新 `order_id` 与 `order_data_anj`；当前代码假设两张表都表示同一个兑换码库存状态。
+- 迁移 SQL 已补充不可重复执行、DDL 隐式提交无法完整事务回滚、上线前必须先在测试库执行的提示。
+- `deploy.sh` 已补充 `/opt/koko/logs` 创建和 `www:www` 权限处理；如果 `www` 用户不存在，会输出明确提示而不是静默失败。

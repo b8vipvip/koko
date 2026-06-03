@@ -11,6 +11,7 @@ import threading
 import pytz
 import traceback
 from logging.handlers import TimedRotatingFileHandler
+from functools import wraps
 load_dotenv()
 logger = logging.getLogger('simple_example')
 logger.setLevel(logging.INFO)
@@ -33,19 +34,55 @@ CORS(
     app,
     origins=[origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:8000").split(",") if origin.strip()],
     methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "X-Idempotency-Key", "X-Requested-With"]
+    allow_headers=["Content-Type", "X-Idempotency-Key", "X-Requested-With", "X-Admin-Token", "Authorization"]
 )
 
 import  pymysql
+
+DB_CONFIG = {
+    "host": os.getenv("DB_HOST", "127.0.0.1"),
+    "user": os.getenv("DB_USER", "koko"),
+    "password": os.getenv("DB_PASSWORD", ""),
+    "database": os.getenv("DB_NAME", "kugo"),
+    "charset": os.getenv("DB_CHARSET", "utf8mb4"),
+}
+ADMIN_API_TOKEN = os.getenv("ADMIN_API_TOKEN", "")
+
+
+def get_db_connection(dict_cursor: bool = False, autocommit: bool = False):
+    config = dict(DB_CONFIG)
+    config["autocommit"] = autocommit
+    if dict_cursor:
+        config["cursorclass"] = pymysql.cursors.DictCursor
+    return pymysql.connect(**config)
+
+
+def require_admin_token():
+    expected = os.getenv("ADMIN_API_TOKEN", ADMIN_API_TOKEN)
+    provided = request.headers.get("X-Admin-Token") or ""
+    if not expected:
+        logger.error("ADMIN_API_TOKEN is not configured; rejecting admin API request")
+        return jsonify({"success": False, "message": "管理员鉴权未配置"}), 503
+    if provided != expected:
+        return jsonify({"success": False, "message": "管理员鉴权失败"}), 401
+    return None
+
+
+def admin_required(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        auth_error = require_admin_token()
+        if auth_error is not None:
+            return auth_error
+        return func(*args, **kwargs)
+    return wrapper
+
+
 class dbClass:
     def __init__(self):
         #global conn
          # 将 conn 和 cursor 作为实例属性
-        self.conn = pymysql.connect(
-            host=os.getenv("DB_HOST", "127.0.0.1"),
-            user=os.getenv("DB_USER", "koko"), password=os.getenv("DB_PASSWORD", ""),
-            database=os.getenv("DB_NAME", "kugo"),
-            charset=os.getenv("DB_CHARSET", "utf8mb4"))
+        self.conn = get_db_connection()
         #global cursor
         
         #cursor = conn.cursor()
@@ -246,7 +283,7 @@ class dbClass:
             else:
                 return jsonify({'error': 'ID not found'}), 404
         except Exception as e:
-            return jsonify({'error': str(e)}), 500
+            return jsonify({'error': "服务器错误"}), 500
         
     # 接收并更新状态
     def update_run_status_id(self, dev):
@@ -447,11 +484,7 @@ class dbClass:
         """
         建立数据库连接
         """
-        self.conn = pymysql.connect(
-            host="127.0.0.1",
-            user="kaaa", password="HP77C",
-            database="kaaa",
-            charset="utf8mb4")
+        self.conn = get_db_connection()
         
         self.cursor = self.conn.cursor()
     
@@ -543,7 +576,7 @@ def login():
             return jsonify({"code": "200", "msg": "发送成功"})
         except Exception as e:
             print("❌ fasong 异常：", e)
-            return jsonify({"code": "500", "msg": f"服务器异常: {e}"}), 500
+            return jsonify({"code": "500", "msg": "服务器错误"}), 500
         finally:
             try:
                 db.closeDb()
@@ -572,12 +605,7 @@ def login():
         conn = None
         cursor = None
         try:
-            conn = pymysql.connect(
-                host="127.0.0.1",
-                user="kaaa", password="HP77C",
-                database="kaaa", charset="utf8mb4",
-                autocommit=False
-            )
+            conn = get_db_connection(autocommit=False)
             cursor = conn.cursor()
 
             # 锁住该条 user_data，防并发重复提交/串单
@@ -670,7 +698,7 @@ def login():
             except Exception:
                 pass
             print("❌ chongzhi 强一致处理异常：", e)
-            return jsonify({"code": "500", "msg": f"服务器异常: {e}"}), 500
+            return jsonify({"code": "500", "msg": "服务器错误"}), 500
 
         finally:
             try:
@@ -845,11 +873,7 @@ def submit_user_info():
         return jsonify({'code': 400, 'msg': '参数不完整'})
 
     try:
-        conn = pymysql.connect(
-            host="127.0.0.1",
-            user="kaaa", password="HP77C",
-            database="kaaa", charset="utf8mb4"
-        )
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -865,17 +889,13 @@ def submit_user_info():
         # 返回 record_id 供前端轮询
         return jsonify({'code': 200, 'msg': '提交成功', 'record_id': record_id})
     except Exception as e:
-        return jsonify({'code': 500, 'msg': str(e)})
+        return jsonify({'code': 500, 'msg': "服务器错误"})
 
 
 @app.route('/getUserStatus/<int:record_id>', methods=['GET'])
 def get_user_status(record_id):
     try:
-        conn = pymysql.connect(
-            host="127.0.0.1",
-            user="kaaa", password="HP77",
-            database="kaaa", charset="utf8mb4"
-        )
+        conn = get_db_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
         cursor.execute("SELECT * FROM user_data WHERE id=%s", (record_id,))
@@ -915,7 +935,7 @@ def get_user_status(record_id):
         })
 
     except Exception as e:
-        return jsonify({'status': 'error', 'msg': str(e)})
+        return jsonify({'status': 'error', 'msg': "服务器错误"})
 @app.route('/check_send_interval', methods=['GET'])
 def check_send_interval():
     phone = request.args.get('phone')
@@ -924,11 +944,7 @@ def check_send_interval():
         return jsonify({'valid': False, 'msg': '缺少手机号参数'})
 
     try:
-        conn = pymysql.connect(
-            host="127.0.0.1",
-            user="kaaa", password="HP77C",
-            database="kaaa", charset="utf8mb4"
-        )
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         query = """
@@ -962,7 +978,7 @@ def check_send_interval():
             return jsonify({'valid': True})
     except Exception as e:
         print(f"❌ 异常：{e}")
-        return jsonify({'valid': False, 'msg': str(e)})
+        return jsonify({'valid': False, 'msg': "服务器错误"})
 
 from flask import request, jsonify
 import pymysql
@@ -983,11 +999,7 @@ def check_recharge_duplicate():
         return jsonify({'duplicate': False})  # 不判断，放行
 
     try:
-        conn = pymysql.connect(
-            host="127.0.0.1",
-            user="kaaa", password="HP77",
-            database="kaaa", charset="utf8mb4"
-        )
+        conn = get_db_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
         if source == "tel":
@@ -1044,11 +1056,7 @@ def get_recharge_status():
     cursor = None
 
     try:
-        conn = pymysql.connect(
-            host='127.0.0.1', user='kaaa',
-            password='HP77', database='kaaa',
-            charset='utf8mb4'
-        )
+        conn = get_db_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
         result = {
@@ -1272,7 +1280,7 @@ def get_recharge_status():
 
     except Exception as e:
         print("查询充值状态异常：", e)
-        return jsonify({'status': 'error', 'message': str(e)})
+        return jsonify({'status': 'error', 'message': "服务器错误"})
 
     finally:
         try:
@@ -1294,10 +1302,7 @@ def check_order_validity():
     print("收到订单号：",orderID)
     try:
         # 连接数据库
-        conn = pymysql.connect(
-            host="127.0.0.1", user="kaaa", password="HP77",
-            database="kaaa", charset="utf8mb4"
-        )
+        conn = get_db_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
         cursor.execute("SELECT * FROM order_id WHERE orderID=%s AND status=1", (orderID,))
@@ -1313,54 +1318,97 @@ def check_order_validity():
             return jsonify({"status": "error"})
             print("订单号错误")
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
+        return jsonify({"status": "error", "message": "服务器错误"})
 @app.route('/lock_order', methods=['POST'])
+@admin_required
 def lock_order():
-    data = request.get_json()
-    orderID = data.get('order_id')
+    data = request.get_json(silent=True) or {}
+    orderID = (data.get('order_id') or '').strip()
+    if not orderID:
+        return jsonify({"status": "error", "message": "缺少兑换码"}), 400
 
+    conn = None
     try:
-        # 连接数据库
-        conn = pymysql.connect(
-            host="127.0.0.1", user="kaaa", password="HP77C",
-            database="kaaa", charset="utf8mb4"
-        )
-        cursor = conn.cursor()
+        conn = get_db_connection(autocommit=False)
+        with conn.cursor() as cursor:
+            conn.begin()
+            # order_id 与 order_data_anj 都表示同一兑换码库存状态，这里必须同步锁定。
+            cursor.execute("SELECT status FROM order_id WHERE orderID=%s FOR UPDATE", (orderID,))
+            row_id = cursor.fetchone()
+            cursor.execute("SELECT status FROM order_data_anj WHERE orderID=%s FOR UPDATE", (orderID,))
+            row_anj = cursor.fetchone()
 
-        # 锁定订单，更新状态为 2
-        cursor.execute("UPDATE order_id SET status=2 WHERE orderID=%s AND status=1", (orderID,))
-        conn.commit()
+            if not row_id and not row_anj:
+                conn.rollback()
+                return jsonify({"status": "error", "message": "兑换码不存在"}), 404
 
-        cursor.close()
-        conn.close()
+            updated = 0
+            if row_id:
+                cursor.execute("UPDATE order_id SET status=2 WHERE orderID=%s AND status=1", (orderID,))
+                updated += cursor.rowcount
+            if row_anj:
+                cursor.execute("UPDATE order_data_anj SET status=2 WHERE orderID=%s AND status=1", (orderID,))
+                updated += cursor.rowcount
 
-        return jsonify({"status": "success"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
+            if updated == 0:
+                conn.rollback()
+                return jsonify({"status": "error", "message": "兑换码不可锁定或已锁定"}), 409
+
+            conn.commit()
+            return jsonify({"status": "success"})
+    except Exception:
+        if conn:
+            conn.rollback()
+        logger.exception("/lock_order failed")
+        return jsonify({"status": "error", "message": "服务器错误"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
 # 在相应的逻辑中，若条件不符合时解锁订单
 @app.route('/unlock_order', methods=['POST'])
+@admin_required
 def unlock_order():
-    data = request.get_json()
-    orderID = data.get('order_id')
+    data = request.get_json(silent=True) or {}
+    orderID = (data.get('order_id') or '').strip()
+    if not orderID:
+        return jsonify({"status": "error", "message": "缺少兑换码"}), 400
 
+    conn = None
     try:
-        # 连接数据库
-        conn = pymysql.connect(
-            host="127.0.0.1", user="kaaa", password="HP77",
-            database="kaaa", charset="utf8mb4"
-        )
-        cursor = conn.cursor()
+        conn = get_db_connection(autocommit=False)
+        with conn.cursor() as cursor:
+            conn.begin()
+            # order_id 与 order_data_anj 都表示同一兑换码库存状态，这里必须同步解锁。
+            cursor.execute("SELECT status FROM order_id WHERE orderID=%s FOR UPDATE", (orderID,))
+            row_id = cursor.fetchone()
+            cursor.execute("SELECT status FROM order_data_anj WHERE orderID=%s FOR UPDATE", (orderID,))
+            row_anj = cursor.fetchone()
 
-        # 解锁订单，更新状态为 1
-        cursor.execute("UPDATE order_id SET status=1 WHERE orderID=%s", (orderID,))
-        conn.commit()
+            if not row_id and not row_anj:
+                conn.rollback()
+                return jsonify({"status": "error", "message": "兑换码不存在"}), 404
 
-        cursor.close()
-        conn.close()
+            updated = 0
+            if row_id:
+                cursor.execute("UPDATE order_id SET status=1 WHERE orderID=%s", (orderID,))
+                updated += cursor.rowcount
+            if row_anj:
+                cursor.execute("UPDATE order_data_anj SET status=1 WHERE orderID=%s", (orderID,))
+                updated += cursor.rowcount
 
-        return jsonify({"status": "success"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
+            conn.commit()
+            return jsonify({"status": "success", "updated": updated})
+    except Exception:
+        if conn:
+            conn.rollback()
+        logger.exception("/unlock_order failed")
+        return jsonify({"status": "error", "message": "服务器错误"}), 500
+    finally:
+        if conn:
+            conn.close()
+
 @app.route('/order_id_query', methods=['GET'])
 def order_id_query():
     order_id = request.args.get('orderID')
@@ -1368,10 +1416,7 @@ def order_id_query():
         return jsonify({"code": 400, "msg": "缺少参数"})
 
     try:
-        conn = pymysql.connect(
-            host="127.0.0.1", user="kaaa", password="HP77",
-            database="kaaa", charset="utf8mb4"
-        )
+        conn = get_db_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
         cursor.execute("""
             SELECT details FROM tel_data
@@ -1385,57 +1430,85 @@ def order_id_query():
 
         return jsonify({"code": 200, "data": [r["details"] for r in rows]})
     except Exception as e:
-        return jsonify({"code": 500, "msg": str(e)})
+        return jsonify({"code": 500, "msg": "服务器错误"})
 @app.route('/extract_order_ids', methods=['POST'])
+@admin_required
 def extract_order_ids():
-    data = request.get_json()
-    order_type = data.get("type")
-    price = float(data.get("price"))
-    quantity = int(data.get("quantity"))
-
+    data = request.get_json(silent=True) or {}
     try:
-        conn = pymysql.connect(
-            host="127.0.0.1", user="kaaa", password="HP77",
-            database="kaaa", charset="utf8mb4"
-        )
+        order_type = (data.get("type") or "").strip()
+        price = float(data.get("price"))
+        quantity = int(data.get("quantity"))
+    except (TypeError, ValueError):
+        return jsonify({"code": 400, "msg": "参数错误"}), 400
+
+    if not order_type or quantity <= 0:
+        return jsonify({"code": 400, "msg": "参数错误"}), 400
+
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection(autocommit=False)
         cursor = conn.cursor()
+        conn.begin()
         cursor.execute("""
-            SELECT orderID FROM order_id
+            SELECT id, orderID FROM order_id
             WHERE type=%s AND xp=%s AND status=1 AND getstatus=1
             ORDER BY id ASC
             LIMIT %s
+            FOR UPDATE
         """, (order_type, price, quantity))
         results = cursor.fetchall()
 
         if not results:
-            return jsonify({"code": 404, "msg": "无订单号库存"})
+            conn.rollback()
+            return jsonify({"code": 404, "msg": "无订单号库存"}), 404
 
         if len(results) < quantity:
-            return jsonify({"code": 206, "msg": f"最大库存为 {len(results)}"})
+            conn.rollback()
+            return jsonify({"code": 206, "msg": f"最大库存为 {len(results)}"}), 200
 
-        # 成功获取 ids 后
-        ids = [r[0] for r in results]
-        placeholders = ','.join(['%s'] * len(ids))
+        row_ids = [r[0] for r in results]
+        redeem_codes = [r[1] for r in results]
+        placeholders = ','.join(['%s'] * len(row_ids))
         cursor.execute(f"""
-            UPDATE order_id SET getstatus = 2 WHERE orderID IN ({placeholders})
-        """, ids)
-        conn.commit()  # ✅ 必须提交
-        cursor.close()
-        conn.close()
-        return jsonify({"code": 200, "data": ids})
-    except Exception as e:
-        return jsonify({"code": 500, "msg": str(e)})
-@app.route('/extract_order', methods=['POST'])
-def extract_order():
-    try:
-        data = request.get_json()
-        print("收到提取请求：", data)
+            UPDATE order_id SET getstatus = 2
+            WHERE id IN ({placeholders}) AND getstatus = 1
+        """, row_ids)
 
-        #order_count = int(data.get('order_count', 10))
-        order_count = int(data['order_count'])
-        order_type = data.get('order_type')
+        if cursor.rowcount != len(row_ids):
+            conn.rollback()
+            logger.warning("/extract_order_ids concurrent update mismatch: expected=%s actual=%s", len(row_ids), cursor.rowcount)
+            return jsonify({"code": 409, "msg": "库存状态变化，请重试"}), 409
+
+        conn.commit()
+        return jsonify({"code": 200, "data": redeem_codes})
+    except Exception:
+        if conn:
+            conn.rollback()
+        logger.exception("/extract_order_ids failed")
+        return jsonify({"code": 500, "msg": "服务器错误"}), 500
+    finally:
+        try:
+            if cursor: cursor.close()
+            if conn: conn.close()
+        except Exception:
+            pass
+
+@app.route('/extract_order', methods=['POST'])
+@admin_required
+def extract_order():
+    connection_mysql = None
+    cursor_mysql = None
+    try:
+        data = request.get_json(silent=True) or {}
+        order_count = int(data.get('order_count', 10))
+        order_type = (data.get('order_type') or '').strip()
         order_price = float(data.get('order_price'))
-        warehouse = data.get('warehouse')
+        warehouse = (data.get('warehouse') or '').strip()
+
+        if order_count <= 0 or not order_type:
+            return jsonify({"success": False, "error": "参数错误"}), 400
 
         if warehouse == '91':
             _91kami = 1
@@ -1447,25 +1520,18 @@ def extract_order():
             _91kami = 0
             adminkami = 0
 
-        extracted_order_ids = []
-
-        # 连接数据库
-        connection_mysql = pymysql.connect(
-            host="127.0.0.1",
-            user="kaaa",
-            password="HP77",
-            database="kaaa",
-            charset="utf8mb4",
-            cursorclass=pymysql.cursors.DictCursor
-        )
+        connection_mysql = get_db_connection(dict_cursor=True, autocommit=False)
         cursor_mysql = connection_mysql.cursor()
+        connection_mysql.begin()
 
-        # 先查询可用订单
         cursor_mysql.execute(
             """
-            SELECT orderID FROM order_id
-            WHERE status = 1 AND getstatus = 1 AND getadminkami = 1 AND type = %s AND xp = %s AND `91kami` = %s AND adminkami = %s
+            SELECT id, orderID FROM order_id
+            WHERE status = 1 AND getstatus = 1 AND getadminkami = 1
+              AND type = %s AND xp = %s AND `91kami` = %s AND adminkami = %s
+            ORDER BY id ASC
             LIMIT %s
+            FOR UPDATE
             """,
             (order_type, order_price, _91kami, adminkami, order_count)
         )
@@ -1473,36 +1539,38 @@ def extract_order():
         extracted_order_ids = [row['orderID'] for row in rows]
 
         if extracted_order_ids:
-            # 更新这些记录的 getadminkami = 2
-            placeholders = ','.join(['%s'] * len(extracted_order_ids))
-            update_sql = f"UPDATE order_id SET getadminkami = 2 WHERE orderID IN ({placeholders})"
-            cursor_mysql.execute(update_sql, extracted_order_ids)
-            connection_mysql.commit()
+            row_ids = [row['id'] for row in rows]
+            placeholders = ','.join(['%s'] * len(row_ids))
+            cursor_mysql.execute(f"UPDATE order_id SET getadminkami = 2 WHERE id IN ({placeholders}) AND getadminkami = 1", row_ids)
+            if cursor_mysql.rowcount != len(row_ids):
+                connection_mysql.rollback()
+                return jsonify({"success": False, "error": "库存状态变化，请重试"}), 409
 
-        cursor_mysql.close()
-        connection_mysql.close()
-
+        connection_mysql.commit()
         return jsonify({
             "success": True,
             "message": f"成功提取 {len(extracted_order_ids)} 个订单号",
             "order_ids": extracted_order_ids
         })
 
-    except Exception as e:
-        print("提取订单出错：", str(e))
-        return jsonify({"success": False, "error": str(e)}), 500
+    except Exception:
+        if connection_mysql:
+            connection_mysql.rollback()
+        logger.exception("/extract_order failed")
+        return jsonify({"success": False, "error": "服务器错误"}), 500
+
+    finally:
+        try:
+            if cursor_mysql: cursor_mysql.close()
+            if connection_mysql: connection_mysql.close()
+        except Exception:
+            pass
 
 @app.route('/mark_order_used', methods=['POST'])
+@admin_required
 def mark_order_status():
     import pymysql
-    conn = pymysql.connect(
-        host="127.0.0.1",
-        user="kaaa",
-        password="HP77",
-        database="kaaa",
-        charset="utf8mb4",
-        autocommit=False  # ✅ 事务控制
-    )
+    conn = get_db_connection(autocommit=False)
 
     try:
         data = request.get_json() or {}
@@ -1623,14 +1691,7 @@ def profit_stat():
         print(f"最终生成SQL: {sql}")
 
         # ✅ 直接连接数据库
-        conn = pymysql.connect(
-            host=os.getenv("DB_HOST", "127.0.0.1"),
-            user=os.getenv("DB_USER", "koko"),
-            password=os.getenv("DB_PASSWORD", ""),
-            database=os.getenv("DB_NAME", "kugo"),
-            charset=os.getenv("DB_CHARSET", "utf8mb4"),
-            cursorclass=pymysql.cursors.DictCursor
-        )
+        conn = get_db_connection(dict_cursor=True)
         print("数据库连接成功")
 
         cursor = conn.cursor()
@@ -1653,7 +1714,7 @@ def profit_stat():
         import traceback
         print("后端异常：")
         traceback.print_exc()
-        return jsonify({'success': False, 'message': f'服务器内部错误：{str(e)}'})
+        return jsonify({'success': False, 'message': f'服务器内部错误：{"服务器错误"}'})
 
 
 
@@ -1691,15 +1752,7 @@ DB_CHARSET = _os.getenv("DB_CHARSET", "utf8mb4")
 
 def _get_db_conn(dict_cursor: bool = False):
     """统一的数据库连接工厂。"""
-    return pymysql.connect(
-        host=DB_HOST,
-        user=DB_USER,
-        password=DB_PASSWORD,
-        database=DB_NAME,
-        charset=DB_CHARSET,
-        cursorclass=(pymysql.cursors.DictCursor if dict_cursor else pymysql.cursors.Cursor),
-        autocommit=False,
-    )
+    return get_db_connection(dict_cursor=dict_cursor, autocommit=False)
 
 
 def _generate_random_order_id(length: int = 8) -> str:
@@ -1722,6 +1775,7 @@ def _check_order_id_duplicate(order_id: str, cursor_mysql) -> bool:
 
 
 @app.route('/submit_order', methods=['POST'])
+@admin_required
 def submit_order():
     """生成不重复订单号，并写入 order_id + order_data_anj。"""
     connection_mysql = None
@@ -1792,9 +1846,8 @@ def submit_order():
     except Exception as e:
         if connection_mysql:
             connection_mysql.rollback()
-        print("❌ /submit_order 异常：", str(e))
-        traceback.print_exc()
-        return jsonify({"success": False, "error": str(e)}), 500
+        logger.exception("/submit_order failed")
+        return jsonify({"success": False, "error": "服务器错误"}), 500
 
     finally:
         try:
@@ -1807,39 +1860,52 @@ def submit_order():
 
 
 @app.route('/uporderid_status', methods=['POST'])
+@admin_required
 def uporderid_status():
-    """把订单状态重置为 1（兼容你原本本地 img.py 的逻辑：同时更新 order_id + order_data_anj）。"""
+    """把订单状态重置为 1，并在 order_id + order_data_anj 中同步。"""
+    conn = None
+    cur = None
     try:
-        data = request.get_json(force=True)
+        data = request.get_json(force=True, silent=True) or {}
         order_id = (data.get('orderID') or '').strip()
         if not order_id:
             return jsonify({"success": False, "error": "Missing orderID"}), 400
 
-        print(f"✅ /uporderid_status 收到 orderID: {order_id}")
+        conn = _get_db_conn(dict_cursor=False)
+        cur = conn.cursor()
+        conn.begin()
+        cur.execute("SELECT id FROM order_id WHERE orderID=%s FOR UPDATE", (order_id,))
+        row1 = cur.fetchone()
+        cur.execute("SELECT id FROM order_data_anj WHERE orderID=%s FOR UPDATE", (order_id,))
+        row2 = cur.fetchone()
 
-        conn1 = _get_db_conn(dict_cursor=False)
-        cur1 = conn1.cursor()
-        cur1.execute("UPDATE order_id SET status = 1 WHERE orderID = %s", (order_id,))
-        conn1.commit()
-        mysql1_rows = cur1.rowcount
-        cur1.close()
-        conn1.close()
+        if not row1 and not row2:
+            conn.rollback()
+            return jsonify({"success": False, "error": "兑换码不存在"}), 404
 
-        conn2 = _get_db_conn(dict_cursor=False)
-        cur2 = conn2.cursor()
-        cur2.execute("UPDATE order_data_anj SET status = 1 WHERE orderID = %s", (order_id,))
-        conn2.commit()
-        mysql2_rows = cur2.rowcount
-        cur2.close()
-        conn2.close()
+        mysql1_rows = 0
+        mysql2_rows = 0
+        if row1:
+            cur.execute("UPDATE order_id SET status = 1 WHERE orderID = %s", (order_id,))
+            mysql1_rows = cur.rowcount
+        if row2:
+            cur.execute("UPDATE order_data_anj SET status = 1 WHERE orderID = %s", (order_id,))
+            mysql2_rows = cur.rowcount
+        conn.commit()
 
-        return jsonify({"success": True, "mysql_updated": mysql1_rows, "sqlite_updated": mysql2_rows})
+        return jsonify({"success": True, "order_id_updated": mysql1_rows, "order_data_anj_updated": mysql2_rows})
 
-    except Exception as e:
-        print(f"❌ /uporderid_status 异常: {e}")
-        traceback.print_exc()
-        return jsonify({"success": False, "error": str(e)}), 500
-
+    except Exception:
+        if conn:
+            conn.rollback()
+        logger.exception("/uporderid_status failed")
+        return jsonify({"success": False, "error": "服务器错误"}), 500
+    finally:
+        try:
+            if cur: cur.close()
+            if conn: conn.close()
+        except Exception:
+            pass
 
 @app.route('/orderid_find', methods=['GET'])
 def orderid_find():
@@ -1951,6 +2017,7 @@ def update_order_data():
 
 
 @app.route('/code_upload_batch', methods=['POST'])
+@admin_required
 def code_upload_batch():
     print("📥 /code_upload_batch 收到请求")
 
@@ -1993,6 +2060,7 @@ def code_upload_batch():
 
 
 @app.route('/code_fetch', methods=['GET', 'POST'])
+@admin_required
 def code_fetch():
     conn = None
     cur = None

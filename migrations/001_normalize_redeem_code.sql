@@ -9,6 +9,9 @@
 --   3. Test on a restored staging database first.
 --
 -- This migration intentionally does NOT DROP or truncate any table/column.
+-- IMPORTANT: This SQL is NOT idempotent / NOT safe to execute repeatedly.
+-- IMPORTANT: MySQL ALTER TABLE causes implicit commits; START TRANSACTION cannot fully roll back DDL.
+-- IMPORTANT: You MUST run this on a restored test/staging database before production.
 
 START TRANSACTION;
 
