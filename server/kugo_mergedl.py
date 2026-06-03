@@ -1,8 +1,9 @@
-﻿# -*- coding:utf-8 -*-
+# -*- coding:utf-8 -*-
 import time
 from time  import  sleep
 import sys
 import  os
+from dotenv import load_dotenv
 import json
 import datetime
 import logging
@@ -10,9 +11,10 @@ import threading
 import pytz
 import traceback
 from logging.handlers import TimedRotatingFileHandler
+load_dotenv()
 logger = logging.getLogger('simple_example')
 logger.setLevel(logging.INFO)
-ch = TimedRotatingFileHandler('all.log', when='midnight', interval=1, backupCount=7, atTime=datetime.time(0, 0, 0, 0))
+ch = TimedRotatingFileHandler(os.getenv('APP_LOG_FILE', 'all.log'), when='midnight', interval=1, backupCount=7, atTime=datetime.time(0, 0, 0, 0))
 ch.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 ch.setFormatter(formatter)
@@ -29,11 +31,7 @@ app = Flask(__name__)
 
 CORS(
     app,
-    origins=[
-        "https://v.ai-do.top",
-        "https://cn123.vip",
-        "http://v.ai-do.top"
-    ],
+    origins=[origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:8000").split(",") if origin.strip()],
     methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "X-Idempotency-Key", "X-Requested-With"]
 )
@@ -44,10 +42,10 @@ class dbClass:
         #global conn
          # 将 conn 和 cursor 作为实例属性
         self.conn = pymysql.connect(
-            host="127.0.0.1",
-            user="kaaa", password="HP77",
-            database="kaaa",
-            charset="utf8mb4")
+            host=os.getenv("DB_HOST", "127.0.0.1"),
+            user=os.getenv("DB_USER", "koko"), password=os.getenv("DB_PASSWORD", ""),
+            database=os.getenv("DB_NAME", "kugo"),
+            charset=os.getenv("DB_CHARSET", "utf8mb4"))
         #global cursor
         
         #cursor = conn.cursor()
@@ -1626,11 +1624,11 @@ def profit_stat():
 
         # ✅ 直接连接数据库
         conn = pymysql.connect(
-            host="127.0.0.1",
-            user="kaaa",
-            password="HP77",
-            database="kaaa",
-            charset="utf8mb4",
+            host=os.getenv("DB_HOST", "127.0.0.1"),
+            user=os.getenv("DB_USER", "koko"),
+            password=os.getenv("DB_PASSWORD", ""),
+            database=os.getenv("DB_NAME", "kugo"),
+            charset=os.getenv("DB_CHARSET", "utf8mb4"),
             cursorclass=pymysql.cursors.DictCursor
         )
         print("数据库连接成功")
@@ -1682,9 +1680,9 @@ import requests as _requests
 
 # ---- 可通过环境变量覆盖 ----
 DB_HOST = _os.getenv("DB_HOST", "127.0.0.1")
-DB_USER = _os.getenv("DB_USER", "kaaa")
-DB_PASSWORD = _os.getenv("DB_PASSWORD", "HP77")
-DB_NAME = _os.getenv("DB_NAME", "kaaa")
+DB_USER = _os.getenv("DB_USER", "koko")
+DB_PASSWORD = _os.getenv("DB_PASSWORD", "")
+DB_NAME = _os.getenv("DB_NAME", "kugo")
 DB_CHARSET = _os.getenv("DB_CHARSET", "utf8mb4")
 
 

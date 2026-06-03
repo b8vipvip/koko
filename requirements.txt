@@ -1,0 +1,8 @@
+Flask>=3.0,<4
+flask-cors>=4.0,<7
+PyMySQL>=1.1,<2
+python-dotenv>=1.0,<2
+requests>=2.31,<3
+selenium>=4.20,<5
+gunicorn>=22,<24
+pytz>=2024.1
