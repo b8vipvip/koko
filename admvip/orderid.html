@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+
+<html lang="zh">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>订单管理</title>
+<!-- 引入 jQuery（本地或 CDN 都可以） -->
+<script src="/jquery.min.js"></script>
+<!-- 引入本地 layer.css -->
+<link href="/layer-v3.5.1/layer/theme/default/layer.css" rel="stylesheet"/>
+<!-- 引入本地 layer.js -->
+<script src="/layer-v3.5.1/layer/layer.js"></script>
+<!-- 引入本地 layer.css -->
+<link href="/layui-v2.11.2/layui/css/layui.css" rel="stylesheet"/>
+<!-- 引入本地 layer.js -->
+<script src="/layui-v2.11.2/layui/layui.js"></script>
+<style>
+    html, body {
+      height: 100vh;
+      margin: 0;
+      padding: 0;
+      background: #e0f2ff;
+      font-family: "Helvetica Neue", Arial, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .container {
+      background: #fff;
+      padding: 2rem;
+      border-radius: 16px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+      width: 85vw;
+      max-width: 258px;
+      font-size: 15px;
+      /* overflow-y: auto; */
+    position: relative;  /* 保证 presetList 的 absolute 是相对 container 定位 */
+  overflow: visible;   /* ✅ 允许内容（如 presetList）显示在 container 外部 */
+  z-index: 1;          /* 确保不会被其他层压住 */
+        
+    }
+
+.form-group {
+  display: flex;
+  align-items: center;
+  margin-bottom: 1rem;
+  
+}
+
+.form-group label {
+  min-width: 30px;          /* 缩小标签宽度 */
+  margin-right: 5px;        /* 减少 label 和 input 的间距 */
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+.form-group input {
+  flex: none;              /* ✅ 关闭 flex 自动撑满 */
+  width: 188px;            /* ✅ 设置固定宽度 */
+  padding: 7px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 15px;
+  height: 1rem;
+}
+#code, #order_id{
+  width: 88px !important;
+  flex: none;
+}
+    .form-inline {
+      display: flex;
+      gap: 10px;
+      flex: 1;
+    }
+
+    .form-inline input {
+      flex: none;   
+    }
+
+    .form-inline button {
+      display: flex;
+      justify-content: center; /* 水平居中 */
+      align-items: center;     /* 垂直居中 */
+      padding: 10px 12px;
+      font-size: 14px;
+      border-radius: 6px;
+      border: none;
+      background-color: #1890ff;
+      color: white;
+      cursor: pointer;
+      white-space: nowrap;
+      height: 1.8rem;
+    }
+    #getCodeBtn{
+        
+    }
+    .form-inline button:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+    }
+
+    .btn1, .btn2 {
+      display: block;
+      margin: 0 auto;
+      padding: 0.3rem;
+      background: #1890ff;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 16px;
+      width: 36%;  /* 如果你不想按钮撑满整个容器，可以改成固定宽度比如 80% */
+      max-width: 300px; /* 限制最大宽度 */
+    }
+    .btn1 {
+  margin-left: calc(50% - 100px); /* 原本是居中，现在向左偏移 20px */
+}
+    .btn1:hover, .btn2:hover {
+      background: #1976d2;
+    }
+
+    .section-divider {
+      margin: 2rem 0 1rem;
+      border-top: 1px solid #eee;
+    }
+
+    #rechargeStatus,
+    #rechargeResult {
+      margin-top: 10px;
+      color: #333;
+      font-size: 14px;
+    }
+
+    @media screen and (max-height: 600px) {
+      .container {
+        padding: 1rem;
+      }
+
+      .btn1, .btn2 {
+        font-size: 14px;
+        padding: 10px;
+      }
+
+      .form-group label {
+        font-size: 14px;
+      }
+
+      .form-group input {
+        font-size: 14px;
+      }
+    }
+  .main-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+}
+
+#accountInfoOutsideWrapper {
+  margin-top: 20px;
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.account-box {
+  width: 90%;
+  max-width: 400px;
+  background: #fff;
+  padding: 1rem;
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.06);
+  font-size: 14px;
+}
+html, body {
+  height: 100vh;
+  overflow: hidden; /* 防止输入框引起页面拉伸 */
+  margin: 0;
+}
+
+.main-wrapper {
+  height: 100vh;
+  overflow-y: auto;   /* ✅ 启用手动滑动，不受键盘弹出影响 */
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding-top: 88px; /* ✅ 整体下移 */
+}
+
+  	/* 设置订单号输入框预选信息样式*/	
+	.preset-item {
+    padding: 5px;
+    cursor: pointer;
+  }
+
+  .preset-item:hover {
+    background-color: #f0f0f0;
+  }
+
+#presetList {
+  display: none;
+  position: absolute;
+  top: 35px;
+  width: 120px;
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid #ccc;
+  background-color: white;
+  z-index: 1000;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  -webkit-overflow-scrolling: touch;
+  font-size: 16px;
+  line-height: 1.5;
+  max-width: 95vw;
+}
+  .preset-item {
+    padding: 14px 16px;
+    font-size: 16px;
+    border-bottom: 1px solid #f0f0f0;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .preset-item:last-child {
+    border-bottom: none;
+  }
+
+  .preset-item:active {
+    background-color: #f2f2f2;
+  }
+
+  .preset-item:hover {
+    background-color: #e8f4ff;
+  }
+
+.preset-item .spech {
+  color: orange;
+  font-style: bold;
+}
+.preset-item .specc {
+  color: #1E9FFF;
+  font-style: bold;
+}
+  </style>
+</head>
+<body>
+<div class="main-wrapper">
+<div class="container">
+<div class="form-group">
+<label>规格</label>
+<select id="order_type" onchange="updatePrices()">
+<option value="">请选择</option>
+<option value="hh1">h1</option>
+<option value="hh3">h3</option>
+<option value="hh12">h12</option>
+<option value="cj1">c1</option>
+<option value="cj3">c3</option>
+<option value="cj12">c12</option>
+</select>
+</div>
+<div class="form-group">
+<label>价格</label>
+<select id="order_price"></select>
+</div>
+<div class="form-group">
+<label>数量</label>
+<select id="order_quantity">
+<option value="1">1</option>
+<option value="5">5</option>
+<option value="10">10</option>
+<option value="20">20</option>
+<option value="50">50</option>
+<option value="100">100</option>
+</select>
+</div>
+<button class="btn2" onclick="extractOrderIDs()">提取订单号</button>
+<div id="orderIDResult"></div>
+<div class="form-group">
+<label>查询订单号</label>
+<input id="detail_order_id" placeholder="输入订单号"/>
+</div>
+<button class="btn2" onclick="queryOrderDetails()">查询明细</button>
+<div id="orderDetailsResult"></div>
+</div>
+</div>
+<script>
+    function showSpinner(msg) {
+      return layer.load(1, { content: msg, shade: [0.4, '#000'] });
+    }
+    function hideSpinner() {
+      layer.closeAll('loading');
+    }
+
+function copyToClipboard(text) {
+  navigator.clipboard.writeText(text).then(() => {
+    layer.msg("已复制");
+  }).catch(() => {
+    layer.msg("复制失败");
+  });
+}
+
+
+// 点击输入框时清空内容
+['detail_order_id'].forEach(id => {
+  const input = document.getElementById(id);
+  input.addEventListener('focus', () => {
+    input.value = '';
+  });
+});
+  // 防止键盘弹出时页面跳动
+  document.querySelectorAll('input, textarea').forEach(input => {
+    input.addEventListener('focus', () => {
+      document.body.style.position = 'fixed';
+    });
+    input.addEventListener('blur', () => {
+      document.body.style.position = '';
+    });
+  });
+const input = document.getElementById('detail_order_id');  // ✅ 修正 id
+//const presetList = document.getElementById('presetList');
+
+
+// 点击预设项时仅填入 data-order 的值
+document.querySelectorAll('.preset-item').forEach(item => {
+  item.addEventListener('click', () => {
+    const order = item.getAttribute('data-order');
+    input.value = order;
+    presetList.style.display = 'none';
+  });
+});
+
+// 点击输入框外隐藏列表（需确保 presetList 外有 class="orderIDDiv" 的父级包裹）
+
+  
+
+
+
+/*----------orderid逻辑----------------------*/
+const priceMap = {
+  hh1: [5.8, 9.8, 10.8],
+  hh3: [21.8, 23.8, 27.8],
+  hh12: [92.8, 115],
+  cj1: [8.8, 11.9, 12.9, 14.9, 18.9],
+  cj3: [32.8, 52.8],
+  cj12: [125, 128, 168]
+};
+
+function updatePrices() {
+  const type = document.getElementById('order_type').value;
+  const priceSelect = document.getElementById('order_price');
+  priceSelect.innerHTML = '';
+  if (priceMap[type]) {
+    priceMap[type].forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p;
+      opt.text = p;
+      priceSelect.appendChild(opt);
+    });
+  }
+}
+
+function extractOrderIDs() {
+  const type = $('#order_type').val();
+  const price = $('#order_price').val();
+  const quantity = $('#order_quantity').val();
+  if (!type || !price || !quantity) return layer.msg("请填写完整");
+
+  $.ajax({
+    url: '/extract_order_ids',
+    type: 'POST',
+    contentType: 'application/json',
+    data: JSON.stringify({ type, price, quantity }),
+    success: res => {
+      if (res.code === 200) {
+        const ids = res.data.join('\n');
+        navigator.clipboard.writeText(ids).then(() => {
+          // 弹出带滚动条的提示框
+          layer.open({
+            type: 1,
+            title: '订单号已复制到剪切板',
+            area: ['80%', '300px'],
+            content: `<div style="padding:10px; overflow-y:auto; max-height:260px; word-break:break-all;">${ids.replace(/\n/g, '<br>')}</div>`
+          });
+        });
+      } else {
+        layer.alert(res.msg || "提取失败");
+      }
+    },
+    error: () => {
+      layer.alert("网络异常");
+    }
+  });
+}
+
+function queryOrderDetails() {
+  const id = $('#detail_order_id').val().trim();
+  if (!id) return layer.msg("请输入订单号");
+
+  $.get('/order_id_query', { orderID: id }, res => {
+    if (res.code === 200 && res.data.length) {
+      const html = res.data.map(d => `<div style="margin-bottom:10px;">${d}</div>`).join('');
+      layer.open({
+        type: 1,
+        title: '订单号明细结果',
+        area: ['80%', '300px'],
+        content: `<div style="padding:10px; overflow-y:auto; max-height:260px;">${html}</div>`
+      });
+    } else {
+      layer.alert("无记录");
+    }
+  });
+}
+
+</script>
+</body>
+</html>
