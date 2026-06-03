@@ -4,6 +4,7 @@ import time
 import json
 import json as _json
 import os
+from dotenv import load_dotenv
 import tempfile
 import subprocess
 import threading
@@ -22,18 +23,15 @@ import shutil
 import random
 from flask_cors import CORS
 from datetime import datetime, timedelta
+load_dotenv()
 now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 app = Flask(__name__)
 
 CORS(
     app,
-    origins=[
-        "https://v.ai-do.top",
-        "https://cn123.vip",
-        "http://v.ai-do.top"
-    ],
+    origins=[origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:8000").split(",") if origin.strip()],
     methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "X-Idempotency-Key", "X-Requested-With"]
+    allow_headers=["Content-Type", "X-Idempotency-Key", "X-Requested-With", "X-Admin-Token", "Authorization"]
 )
 
 last_user_submit_time = time.time()
@@ -44,7 +42,7 @@ logger = logging.getLogger('user_logger')
 logger.setLevel(logging.DEBUG)
 for handler in logger.handlers[:]:
     logger.removeHandler(handler)
-file_handler = logging.FileHandler('userpy.log')
+file_handler = logging.FileHandler(os.getenv('USER_LOG_FILE', 'userpy.log'))
 file_handler.setLevel(logging.DEBUG)
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.DEBUG)
@@ -55,11 +53,11 @@ logger.addHandler(file_handler)
 logger.addHandler(console_handler)
 # 数据库配置
 db_config = {
-    'host': '127.0.0.1',
-    'user': 'kaaa',
-    'password': 'HP77C',
-    'database': 'kaaa',
-    'charset': 'utf8mb4'
+    'host': os.getenv('DB_HOST', '127.0.0.1'),
+    'user': os.getenv('DB_USER', 'koko'),
+    'password': os.getenv('DB_PASSWORD', ''),
+    'database': os.getenv('DB_NAME', 'kugo'),
+    'charset': os.getenv('DB_CHARSET', 'utf8mb4')
 }
 
 
@@ -225,9 +223,17 @@ class BrowserPool:
         # 记录当前使用的配置时间窗（2 小时一个窗）
         self.current_slot = int(time.time() // CONFIG_INTERVAL_SECONDS)
 
-        for _ in range(size):
+        self._initialized = False
+        if os.getenv("AUTO_START_BROWSER_POOL", "0") == "1":
+            self.ensure_initialized()
+
+    def ensure_initialized(self):
+        if self._initialized:
+            return
+        for _ in range(self.size):
             self.pool.put(self._create_driver())
-  
+        self._initialized = True
+
     def rebuild_pool_with_new_config(self):
         """
         关闭当前所有浏览器实例，并使用新的浏览器参数重建池
@@ -236,6 +242,7 @@ class BrowserPool:
         logger.info("[浏览器池] 正在关闭现有浏览器并使用新参数重建浏览器池")
         # 先关闭现有 driver
         self.shutdown_all()
+        self._initialized = False
 
         # 重新创建队列
         self.pool = Queue(maxsize=self.size)
@@ -307,6 +314,7 @@ class BrowserPool:
 
         return driver    
     def acquire(self, timeout=30):
+        self.ensure_initialized()
         try:
             return self.pool.get(timeout=timeout)
         except Empty:
@@ -531,7 +539,8 @@ def process_user_record(record_id):
 
     except Exception as e:
         logger.error(f"处理异常: {e}")
-        return {'status': 'error', 'message': str(e)}
+        logger.exception('getcode_record failed')
+        return {'status': 'error', 'message': '服务器错误'}
 
 def getcode_record(phone):
     try:
@@ -798,7 +807,10 @@ def unlock_order_if_locked(conn, order_id: str) -> bool:
         cur.execute("UPDATE order_id SET status=1 WHERE orderID=%s AND status=2", (order_id,))
         return cur.rowcount >= 0
 
-ensure_tables()
+try:
+    ensure_tables()
+except Exception as exc:
+    logger.warning(f"submissions table initialization skipped: {exc}")
 
 @app.post("/submit")
 def submit():
@@ -921,7 +933,7 @@ def submit():
             conn2.commit()
         except Exception:
             pass
-        return jsonify({'status': 'error', 'message': f'服务器异常: {e}'}), 500
+        return jsonify({'status': 'error', 'message': '服务器异常'}), 500
     finally:
         try:
             conn.close()
@@ -929,7 +941,7 @@ def submit():
             pass
 
 # ===== 管理端接口Admin-only direct submit (allow duplicate order_id, no locking) =====
-ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "change-me-please")
+ADMIN_TOKEN = os.environ.get("ADMIN_API_TOKEN", "")
 def ensure_admin_tables():
     """创建 submissions 表；如需给 user_data 增加 admin_override 列，则兼容 5.7 的方式添加"""
     conn = pymysql.connect(**db_config)
@@ -967,7 +979,10 @@ def ensure_admin_tables():
         conn.close()
 
 
-ensure_admin_tables()
+try:
+    ensure_admin_tables()
+except Exception as exc:
+    logger.warning(f"admin table initialization skipped: {exc}")
 
 @app.post("/admin/submit")
 def admin_submit():
@@ -1037,7 +1052,7 @@ def admin_submit():
             conn.rollback()
         except Exception:
             pass
-        return jsonify({'status': 'error', 'message': f'服务器异常: {e}'}), 500
+        return jsonify({'status': 'error', 'message': '服务器异常'}), 500
     finally:
         conn.close()
 
@@ -1045,7 +1060,7 @@ def admin_submit():
 def send_verify_code():
     try:
         data = request.get_json(force=True)
-        logger.info(f"[验证码接口] 收到参数：{data}")
+        logger.info("[验证码接口] 收到验证码请求")
 
         if data.get('type') != 'fasong':
             return jsonify({'code': 400, 'msg': '请求类型不正确'})
@@ -1071,7 +1086,7 @@ def send_verify_code():
         init = sanitize(data.get('init', '0'))
         yzm_status = sanitize(data.get('yzm_status', '1'))
 
-        logger.info(f"[验证码接口] 处理后参数：token={token}, UrlsID={UrlsID}, orderID={orderID}, zhanghu={zhanghu}, huiyuanguize={huiyuanguize}, lingqu3={lingqu3}, shougong={shougong}, qdzhb={qdzhb}, applogin={applogin}, weblog={weblog}, init={init}, yzm_status={yzm_status}")
+        logger.info(f"[验证码接口] 参数已校验 phone_tail={token[-4:] if token else ''}, redeem_code_tail={orderID[-6:] if orderID else ''}, zhanghu={zhanghu}, yzm_status={yzm_status}")
 
         # 插入 tel_data
         connection = pymysql.connect(**db_config)
@@ -1099,7 +1114,7 @@ def send_verify_code():
 
     except Exception as e:
         logger.error(f"[验证码接口] 处理失败: {e}")
-        return jsonify({'code': 500, 'msg': '服务器错误', 'error': str(e)})
+        return jsonify({'code': 500, 'msg': '服务器错误'})
 
 
 

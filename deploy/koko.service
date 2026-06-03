@@ -1,0 +1,17 @@
+[Unit]
+Description=Koko recharge backend
+After=network.target mysql.service
+Wants=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/koko
+EnvironmentFile=/opt/koko/.env
+ExecStart=/opt/koko/.venv/bin/gunicorn -w ${GUNICORN_WORKERS} -b ${APP_HOST}:${APP_PORT} --chdir /opt/koko/server app:app
+Restart=always
+RestartSec=5
+User=www
+Group=www
+
+[Install]
+WantedBy=multi-user.target
