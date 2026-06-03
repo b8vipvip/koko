@@ -9,10 +9,7 @@ error_reporting(E_ALL);
 date_default_timezone_set('Asia/Shanghai');
 
 require_once __DIR__ . '/dbclass.php';
-require __DIR__ . '/vendor/autoload.php';
-
-use PHPMailer\PHPMailer\PHPMailer;
-use PHPMailer\PHPMailer\Exception;
+require_once __DIR__ . '/lib/mailer.php';
 
 // ✅ 设备配置：以后新增设备只加一行
 $devices = [
@@ -22,17 +19,6 @@ $devices = [
   'device4' => ['dev' => 198, 'threshold' => 200],
   'device5' => ['dev' => 208, 'threshold' => 200],
   'device6' => ['dev' => 308, 'threshold' => 200],
-];
-
-// 邮件配置（你原来的）
-$mailCfg = [
-  'host' => 'smtp.qq.com',
-  'username' => '3891327165@qq.com',
-  'password' => 'orrr',
-  'from_mail' => '3891327165@qq.com',
-  'from_name' => '555',
-  'to_mail' => '3959418301@qq.com',
-  'to_name' => '888',
 ];
 
 $inNightTime = (date('H:i') >= '21:50' || date('H:i') < '08:30');
@@ -115,19 +101,9 @@ function getLatestBalancesMap($db, $deviceIds) {
 }
 
 // ✅ 发邮件
-function sendAbnormalMail($abnormalDevices, $mailCfg) {
-  $mail = new PHPMailer(true);
+function sendAbnormalMail($abnormalDevices) {
   try {
-    $mail->isSMTP();
-    $mail->Host = $mailCfg['host'];
-    $mail->SMTPAuth = true;
-    $mail->Username = $mailCfg['username'];
-    $mail->Password = $mailCfg['password'];
-    $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
-    $mail->Port = 465;
-
-    $mail->setFrom($mailCfg['from_mail'], $mailCfg['from_name']);
-    $mail->addAddress($mailCfg['to_mail'], $mailCfg['to_name']);
+    $mail = koko_create_mailer();
     $mail->isHTML(true);
     $mail->Subject = '设备异常通知';
 
@@ -136,7 +112,7 @@ function sendAbnormalMail($abnormalDevices, $mailCfg) {
 
     return $mail->send();
   } catch (Exception $e) {
-    error_log("邮件发送失败: " . $mail->ErrorInfo);
+    error_log("邮件发送失败: " . $e->getMessage());
     return false;
   }
 }
@@ -185,7 +161,7 @@ try {
   $canSend = (!empty($abnormalDevices) && !$inNightTime && ($now - $lastMailTime > 120));
 
   if ($canSend) {
-    $ok = sendAbnormalMail($abnormalDevices, $mailCfg);
+    $ok = sendAbnormalMail($abnormalDevices);
     if ($ok) writeLastMailTime($lastMailTimeFile, $now);
   }
 

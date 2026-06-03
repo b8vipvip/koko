@@ -1,6 +1,7 @@
 <?php
 header('Content-Type: application/json');
 require_once '../db.php';
+koko_require_admin_token(false);
 
 $data = json_decode(file_get_contents('php://input'), true);
 $device_id = (int)$data['device_id'];

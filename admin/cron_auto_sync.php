@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/db.php';
+koko_require_admin_token(true);
 
 try {
     $stmt = $pdo->query("SELECT id, dev, czp FROM order_data WHERE processed = 1 AND dev IN ('157','178','188','198','208','308') LIMIT 10");

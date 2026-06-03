@@ -1,9 +1,27 @@
 <?php
+require_once __DIR__ . '/lib/config.php';
+require_once __DIR__ . '/lib/mailer.php';
+
 class DbClass {
     private $conn;
 
-    public function __construct($host, $user, $password, $database) {
-        $this->conn = new mysqli($host, $user, $password, $database);
+    public function __construct($host = null, $user = null, $password = null, $database = null) {
+        if ($host === null && $user === null && $password === null && $database === null) {
+            $this->conn = koko_mysqli();
+        } else {
+            // Backward-compatible signature; values should come from admin/lib/config.php, not literals.
+            $cfg = koko_db_config();
+            $this->conn = new mysqli(
+                $host ?: $cfg['host'],
+                $user ?: $cfg['user'],
+                $password !== null ? $password : $cfg['password'],
+                $database ?: $cfg['name'],
+                $cfg['port']
+            );
+            if (!$this->conn->connect_error) {
+                $this->conn->set_charset($cfg['charset']);
+            }
+        }
         if ($this->conn->connect_error) {
             die("Connection failed: " . $this->conn->connect_error);
         }
@@ -331,27 +349,8 @@ public function checkNewTasks() {
     exit;
 }
 private function sendNewTaskEmail($body) {
-    require_once __DIR__ . '/vendor/autoload.php';
-
-    $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
-
     try {
-        $mail->isSMTP();
-        $mail->Host = 'smtp.qq.com';
-        $mail->SMTPAuth = true;
-
-        // 建议后面改成配置文件，不要直接写死在代码里
-        $mail->Username = '3891327165@qq.com';
-        $mail->Password = 'orrridcwqsnaccah';
-
-        $mail->SMTPSecure = \PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_SMTPS;
-        $mail->Port = 465;
-
-        $mail->CharSet = 'UTF-8';
-
-        $mail->setFrom('3891327165@qq.com', '任务提醒');
-        $mail->addAddress('3959418301@qq.com', '管理员');
-
+        $mail = koko_create_mailer();
         $mail->Subject = '检测到新充值任务';
         $mail->Body = $body;
 
@@ -359,8 +358,8 @@ private function sendNewTaskEmail($body) {
 
         return true;
 
-    } catch (\PHPMailer\PHPMailer\Exception $e) {
-        throw new Exception("邮件发送失败: " . $mail->ErrorInfo);
+    } catch (Exception $e) {
+        throw new Exception("邮件发送失败: " . $e->getMessage());
     }
 }
 // public function getDetails($id) {
@@ -514,7 +513,7 @@ public function check_and_update_c_status() {
   }
 }
 
-$db = new DbClass('localhost', 'kugo', 'HP77CyRpMxd8hhFN', 'kugo');
+$db = new DbClass();
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $action = $_GET['action'] ?? '';
 
@@ -543,6 +542,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         exit;
 
     } elseif ($action == 'checkNewTasks') {
+        koko_require_admin_token(false);
         $db->checkNewTasks();
         exit;
 
@@ -559,10 +559,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 } elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (isset($_GET['action']) && $_GET['action'] === 'check_and_update_c_status') {
+        koko_require_admin_token(false);
         $db->check_and_update_c_status();
         exit;
 
     } elseif (isset($_GET['action']) && $_GET['action'] === 'setManualSuccess') {
+        koko_require_admin_token(false);
         $id = intval($_POST['id'] ?? 0);
 
         if ($id > 0) {
