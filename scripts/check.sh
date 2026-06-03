@@ -39,6 +39,26 @@ if rg -n 'password\s*=\s*["'"'"']HP77|user\s*=\s*["'"'"']kaaa|database\s*=\s*["'
   exit 1
 fi
 
+
+printf '[check] PHP secret regression scan\n'
+php_secret_pattern='HP77|HP77C|\bkaaa\b|smtp\.qq\.com|\$mail->Password\s*=|\$mail->Username\s*=|setFrom\(["'"'"'][^"'"'"']*@|addAddress\(["'"'"'][^"'"'"']*@'
+if rg -n --glob '*.php' --glob '!vendor/**' "$php_secret_pattern" admin; then
+  printf 'Hardcoded PHP database or SMTP secret regression found. Use admin/lib/config.php and admin/lib/mailer.php instead.\n' >&2
+  exit 1
+fi
+
+printf '[check] PHP syntax check\n'
+if command -v php >/dev/null 2>&1; then
+  mapfile -t php_files < <(find admin -maxdepth 1 -type f -name '*.php' -print | sort)
+  mapfile -t phpapi_files < <(find admin/phpapi -maxdepth 1 -type f -name '*.php' -print | sort)
+  for file in "${php_files[@]}" "${phpapi_files[@]}"; do
+    php -l "$file" >/dev/null
+    printf '%s: syntax ok\n' "$file"
+  done
+else
+  printf 'WARN: php command not found; skipped PHP syntax check\n' >&2
+fi
+
 printf '[check] Admin route protection scan\n'
 python - <<'PY'
 from pathlib import Path

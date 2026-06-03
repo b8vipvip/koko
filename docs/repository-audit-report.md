@@ -120,3 +120,15 @@ rsync -av --delete usrvip/ "$USRVIP_ROOT/"
 - `/lock_order` 与 `/unlock_order` 现在在同一事务内锁定并同步更新 `order_id` 与 `order_data_anj`；当前代码假设两张表都表示同一个兑换码库存状态。
 - 迁移 SQL 已补充不可重复执行、DDL 隐式提交无法完整事务回滚、上线前必须先在测试库执行的提示。
 - `deploy.sh` 已补充 `/opt/koko/logs` 创建和 `www:www` 权限处理；如果 `www` 用户不存在，会输出明确提示而不是静默失败。
+
+## 10. PHP 后台配置集中化与敏感信息清理
+
+- PHP 与 Python 共用同一套环境变量字段，生产建议统一写入 `/opt/koko/.env`；`admin/lib/config.php` 会依次读取 `getenv()` / `$_ENV`、`PHP_ENV_FILE`、`/opt/koko/.env`、项目根目录 `.env`，以兼容 PHP-FPM 默认不透传环境变量的场景。
+- 宝塔 / Nginx 必须禁止公网访问任何 `.env` 文件；推荐把真实 `/opt/koko/.env` 放在 Web 根目录之外，并在站点配置中添加拒绝规则（例如 `location ~ /\.env { deny all; }`）。
+- 上线后必须立即轮换已经泄露过的数据库密码、SMTP 授权码、管理员 token，并确认旧凭据已在 MySQL、QQ 邮箱授权码管理页和反向代理配置中失效。
+- PHP 数据库连接已统一到 `admin/lib/config.php`：`admin/db.php` 继续导出 `$pdo`，`admin/dbclass.php` 继续导出 `DbClass`，避免破坏现有 `api.php` 与 `phpapi/*.php` 的调用方式。
+- PHP SMTP 配置已统一到 `admin/lib/mailer.php`：发件服务器、端口、账号、授权码、发件人、收件人均从 `.env` 读取，邮件脚本只保留主题和正文差异。
+- 以下 PHP 接口/脚本现在需要 `Header: X-Admin-Token`：`admin/api.php?action=checkNewTasks`、`admin/api.php?action=check_and_update_c_status`、`admin/api.php?action=setManualSuccess`、`admin/phpapi/transfer_in.php`、`admin/phpapi/transfer_out.php`、`admin/mail_test.php`。`admin/cron_auto_sync.php`、`admin/email.php`、`admin/cron_balance_monitor.php` 在 CLI 下允许定时任务直接运行；如果通过 HTTP 访问，则同样需要 `X-Admin-Token`。
+- `ADMIN_API_TOKEN` 为空时，上述危险 PHP HTTP 接口会拒绝访问，不默认放行。若当前前端尚未发送 token，需要由前端补充 `X-Admin-Token` 请求头，或由 Nginx/宝塔反代在受保护的后台路径统一注入。
+- `admin/dev.php` 仍承担后台展示职责，暂未强制加 token 以避免影响现有设备状态页面展示；建议生产环境通过独立后台域名、IP 白名单、Basic Auth 或 SSO 保护整个 `admin` 站点。
+- `.gitignore` 已忽略 `.env`、日志、运行状态文件 `last_mail_time.txt`、上传临时文件和 SQL 临时文件。`admin/vendor/` 当前包含 PHPMailer 运行依赖，本次未盲删；如后续改为 Composer 部署，应先确认生产构建流程再决定是否忽略/移除。

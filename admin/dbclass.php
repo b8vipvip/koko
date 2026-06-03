@@ -1,18 +1,12 @@
 <?php
+require_once __DIR__ . '/lib/config.php';
+
 class DbClass {
     private $conn;
 
     public function __construct() {
-        $servername = "127.0.0.1";
-        $username = "kugo";
-        $password = "HP77C";
-        $dbname = "kugo";
-
-        // 连接数据库
-        $this->conn = new mysqli($servername, $username, $password, $dbname);
-
-        // 设置编码（可选）
-        $this->conn->set_charset("utf8mb4");
+        // 连接数据库：所有参数统一来自 admin/lib/config.php（环境变量或 .env）
+        $this->conn = koko_mysqli();
 
         // 连接错误处理，不 die
         if ($this->conn->connect_error) {
