@@ -79,6 +79,48 @@ print('no hardcoded domestic IP/token/database password patterns found')
 PYCHECK_INFRA_SECRETS
 
 
+
+printf '[check] Frontend reverse-proxy API endpoint scan\n'
+python - <<'PYFRONTEND_PROXY'
+from pathlib import Path
+import re
+
+roots = [Path('usrvip'), Path('admin'), Path('admvip')]
+suffixes = {'.html', '.js', '.php'}
+ignored_parts = {'vendor'}
+files = []
+for root in roots:
+    for path in root.rglob('*'):
+        if not path.is_file() or path.suffix.lower() not in suffixes:
+            continue
+        if any(part in ignored_parts for part in path.parts):
+            continue
+        files.append(path)
+
+legacy_api_domain = re.compile(r'https://s\.k2n\.cn', re.I)
+# Frontend files must not pin browser API traffic to a concrete host/IP. Keep API calls same-origin.
+ip_literal = re.compile(r'(?<![\d.])(?!(?:127\.0\.0\.1|0\.0\.0\.0|localhost)(?![\d.]))(?:\d{1,3}\.){3}\d{1,3}(?![\d.])')
+fetch_absolute_cn_or_ip = re.compile(r'fetch\s*\(\s*[`\'\"]https?://(?:[^/`\'\"]*\.cn|(?:\d{1,3}\.){3}\d{1,3})', re.I)
+ajax_absolute_cn_or_ip = re.compile(r'\$\.ajax\s*\(\s*\{[^}]*?url\s*:\s*[`\'\"]https?://(?:[^/`\'\"]*\.cn|(?:\d{1,3}\.){3}\d{1,3})', re.I | re.S)
+violations = []
+for path in files:
+    text = path.read_text(errors='ignore')
+    for lineno, line in enumerate(text.splitlines(), 1):
+        if legacy_api_domain.search(line):
+            violations.append(f'{path}:{lineno}: legacy https://s.k2n.cn API domain is forbidden in frontend files')
+        if ip_literal.search(line):
+            violations.append(f'{path}:{lineno}: hardcoded IP literal is forbidden in frontend files')
+        if fetch_absolute_cn_or_ip.search(line):
+            violations.append(f'{path}:{lineno}: fetch() must not call an absolute .cn/IP URL; use a same-origin relative path')
+    for match in ajax_absolute_cn_or_ip.finditer(text):
+        lineno = text[:match.start()].count('\n') + 1
+        violations.append(f'{path}:{lineno}: $.ajax({{ url: ... }}) must not call an absolute .cn/IP URL; use a same-origin relative path')
+
+if violations:
+    raise SystemExit('\n'.join(violations))
+print('frontend API endpoints are same-origin relative and do not expose legacy domains/IP literals')
+PYFRONTEND_PROXY
+
 printf '[check] SQL migration safety lint\n'
 python - <<'PY'
 from pathlib import Path

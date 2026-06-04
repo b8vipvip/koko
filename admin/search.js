@@ -1,9 +1,15 @@
+const ADMIN_API_BASE = "";
+
+function adminApi(path) {
+    return ADMIN_API_BASE + path;
+}
+
 // 搜索手机号
 function searchRecords() {
     const tel = document.getElementById("search-input").value;
 
     // 发起请求到后端 API
-    fetch(`https://ka.k2n.cn/api.php?action=search&tel=${encodeURIComponent(tel)}`)
+    fetch(adminApi(`/api.php?action=search&tel=${encodeURIComponent(tel)}`))
         .then(response => response.json())
         .then(data => {
             if (data.records && data.records.length > 0) {
@@ -62,7 +68,7 @@ function searchRecords() {
 // function handleSkip(id) {
 //     // 发起AJAX请求来检查和更新c_status
 //     console.log('Sending request to skip ID:', id);
-//     fetch(`https://ka.k2n.cn/api.php?action=check_and_update_c_status`, {
+//     fetch(adminApi(`/api.php?action=check_and_update_c_status`), {
 //         method: 'POST',
 //         headers: {
 //             'Content-Type': 'application/json',
@@ -103,7 +109,7 @@ function searchRecords() {
 
 // // 显示详情信息并隐藏列表
 // function showDetails(id) {
-//     fetch(`https://ka.k2n.cn/api.php?action=getDetails&id=${id}`)
+//     fetch(adminApi(`/api.php?action=getDetails&id=${id}`))
 //         .then(response => response.json())
 //         .then(data => {
 //             document.getElementById('details-info').innerText = data.details;
