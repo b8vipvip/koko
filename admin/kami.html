@@ -141,7 +141,8 @@ layui.use(['layer'], function(){
 
 // 处理返回的卡密并弹出可复制提示
 function showCopyDialog(orderIDs) {
-  const lines = orderIDs.map(id => `第一步：手机浏览器打开兑换链接：https://cn123.vip\n第二步：提交兑换，兑换码：${id} `);
+  const redeemUrl = window.location.origin + '/usrvip/';
+  const lines = orderIDs.map(id => `第一步：手机浏览器打开兑换链接：${redeemUrl}\n第二步：提交兑换，兑换码：${id} `);
   const fullText = `会员兑换流程：\n\n${lines.join('\n')}`;
 
   const contentHTML = `

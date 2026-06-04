@@ -1,3 +1,9 @@
+const ADMIN_API_BASE = "";
+
+function adminApi(path) {
+    return ADMIN_API_BASE + path;
+}
+
 let currentPage = 1;
 let totalPages = 1;
 
@@ -35,7 +41,7 @@ function updateStatus() {
 document.addEventListener('DOMContentLoaded', updateStatus);
 // 获取数据并渲染列表
 function fetchData(tel = '', page = 1) {
-    fetch(`https://ka.k2n.cn/api.php?action=search&tel=${tel}&page=${page}`)
+    fetch(adminApi(`/api.php?action=search&tel=${tel}&page=${page}`))
         .then(response => response.json())
         .then(data => {
             displayRecords(data.records);
@@ -161,7 +167,7 @@ function showToast(message) {
 function handleSkip(id) {
     // 发起AJAX请求来检查和更新c_status
     console.log('Sending request to skip ID:', id);
-    fetch(`https://ka.k2n.cn/api.php?action=check_and_update_c_status`, {
+    fetch(adminApi(`/api.php?action=check_and_update_c_status`), {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -204,7 +210,7 @@ function handleSkip(id) {
         return;
     }
 
-    const requestUrl = 'https://ka.k2n.cn/api.php?action=check_and_update_c_status';
+    const requestUrl = adminApi('/api.php?action=check_and_update_c_status');
     console.log('🟣 即将发送 fetch 请求到：', requestUrl);
 
     const requestBody = JSON.stringify({ id: id });
@@ -256,7 +262,7 @@ function handleSkip(id) {
 
 function loadRecords() {
     console.log('🟣 调用 loadRecords() - 刷新列表');
-    fetch('https://ka.k2n.cn/api.php?action=search&page=1')
+    fetch(adminApi('/api.php?action=search&page=1'))
         .then(response => response.json())
         .then(data => {
             console.log('🟣 loadRecords 拿到数据：', data);
@@ -272,7 +278,7 @@ function loadRecords() {
 function showDetails(id) {
     console.log(`Fetching details for ID: ${id}`); // 打印正在获取详情的 ID
 
-    fetch(`https://ka.k2n.cn/api.php?action=getDetails&id=${id}`)
+    fetch(adminApi(`/api.php?action=getDetails&id=${id}`))
         .then(response => {
             if (!response.ok) {
                 console.error(`Network error: ${response.status} ${response.statusText}`); // 打印响应的状态码和状态文本
@@ -326,7 +332,7 @@ function showDetails(id) {
                 document.getElementById('sd-czcg-btn').onclick = function() {
                     console.log(`Manually marking ID ${id} as 成功`);
 
-                    fetch('https://ka.k2n.cn/api.php?action=setManualSuccess', {
+                    fetch(adminApi('/api.php?action=setManualSuccess'), {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/x-www-form-urlencoded'
@@ -458,7 +464,7 @@ function markOrderIDUsed() {
     }
 
     // 是卡密，调用后端接口
-    fetch('https://ka.k2n.cn/mark_order_used', {
+    fetch(adminApi('/mark_order_used'), {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
@@ -499,7 +505,7 @@ function clockorderID() {
     }
 
     // 调用后端接口，将状态设为2
-    fetch('https://ka.k2n.cn/mark_order_used', {
+    fetch(adminApi('/mark_order_used'), {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
@@ -536,7 +542,7 @@ function unclockorderID() {
     }
 
     // 调用后端接口，将状态设为1
-    fetch('https://ka.k2n.cn/mark_order_used', {
+    fetch(adminApi('/mark_order_used'), {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
