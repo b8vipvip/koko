@@ -187,7 +187,7 @@ CREATE TABLE IF NOT EXISTS `recharge_tasks` (
 
 CREATE TABLE IF NOT EXISTS `run_status` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
-  `dev` int(11) DEFAULT NULL,
+  `dev` varchar(64) DEFAULT NULL,
   `create_date` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `status` varchar(255) DEFAULT '0',
   `restart` tinyint(1) DEFAULT '0' COMMENT '是否已经重启(0-否,1-是)',

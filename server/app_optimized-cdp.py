@@ -274,9 +274,13 @@ class BrowserPool:
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_experimental_option("useAutomationExtension", False)
 
-        # 使用持久化用户数据目录
-        user_data_dir = os.path.join(self.userdata_root, cfg["dir"])
-        os.makedirs(user_data_dir, exist_ok=True)
+        # 每次创建 driver 都使用唯一 user-data-dir，避免 Chrome profile 并发/残留复用导致 session not created
+        user_data_dir = tempfile.mkdtemp(prefix=f'{cfg["dir"]}_', dir=self.userdata_root)
+        try:
+            os.chmod(user_data_dir, 0o700)
+        except Exception as e:
+            logger.warning(f"设置 Chrome user-data-dir 权限失败: {e}")
+        self.temp_dirs.append(user_data_dir)
         chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
         # 创建 Chrome 实例
         chrome_options.binary_location = "/usr/bin/google-chrome"
@@ -869,9 +873,9 @@ def submit():
         # 锁定成功 -> 插入 user_data 作为一次提交的记录
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO user_data (phone, code, order_id, status, create_date)
-                VALUES (%s, %s, %s, 1, NOW())
-            """, (phone, code, order_id))
+                INSERT INTO user_data (phone, code, order_id, redeem_code, status, create_date)
+                VALUES (%s, %s, %s, %s, 1, NOW())
+            """, (phone, code, order_id, order_id))
             record_id = cur.lastrowid
 
         conn.commit()
@@ -1021,9 +1025,9 @@ def admin_submit():
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO user_data (phone, code, order_id, status, create_date, admin_override)
-                VALUES (%s, %s, %s, 1, NOW(), 1)
-            """, (phone, code, order_id))
+                INSERT INTO user_data (phone, code, order_id, redeem_code, status, create_date, admin_override)
+                VALUES (%s, %s, %s, %s, 1, NOW(), 1)
+            """, (phone, code, order_id, order_id))
             record_id = cur.lastrowid
         conn.commit()
 
@@ -1100,10 +1104,10 @@ def send_verify_code():
               qdzhb, applogin, weblog, init, yzm_status))
         '''
         cursor.execute("""
-            INSERT INTO tel_data (tel, yzm, orderid, zhanghu, huiyuanguize, lingqu3, shougong,
+            INSERT INTO tel_data (tel, yzm, orderid, redeem_code, zhanghu, huiyuanguize, lingqu3, shougong,
                                   qdzhb, applogin, weblog, init, yzm_status, create_date)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """, (token, UrlsID, orderID, zhanghu, huiyuanguize, lingqu3, shougong,
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (token, UrlsID, orderID, orderID, zhanghu, huiyuanguize, lingqu3, shougong,
               qdzhb, applogin, weblog, init, yzm_status, now))
         connection.commit()
         cursor.close()
