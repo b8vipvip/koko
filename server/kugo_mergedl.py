@@ -26,7 +26,7 @@ sys.path.append(os.path.abspath(os.path.realpath(os.path.dirname(__file__))))#
 
 from flask import Flask, request, render_template,jsonify
 from flask_cors import CORS
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 app = Flask(__name__)
 
@@ -91,14 +91,15 @@ def _json_payload():
     return request.get_json(silent=True) or {}
 
 
-def require_worker_token():
+def require_worker_token(json_response=True):
     expected = os.getenv("WORKER_API_TOKEN", "")
-    provided = request.headers.get("X-Worker-Token") or ""
     if not expected:
-        logger.error("WORKER_API_TOKEN is not configured; rejecting worker API request")
-        return jsonify({"success": False, "message": "worker 鉴权未配置"}), 503
+        return None
+    provided = request.headers.get("X-Worker-Token") or request.args.get("token") or ""
     if provided != expected:
-        return jsonify({"success": False, "message": "worker 鉴权失败"}), 401
+        if json_response:
+            return jsonify({"success": False, "message": "worker 鉴权失败"}), 401
+        return "error: unauthorized", 401, {"Content-Type": "text/plain; charset=utf-8"}
     return None
 
 
@@ -110,6 +111,275 @@ def worker_required(func):
             return auth_error
         return func(*args, **kwargs)
     return wrapper
+
+
+ANJ_SUCCESS_R_STATUS = {'充值成功', '成功', '已成功', '手动成功'}
+ANJ_FAILED_R_STATUS = {'失败', '无效订单', '重复订单', '验证码失效', '验证错', '超时', '已拦截'}
+ANJ_RUNNING_R_STATUS = {'准备登录', 'webdl', 'appdl', '登录成功', '正在充值', '充值中'}
+ANJ_TASK_FIELDS = [
+    'id', 'tel', 'yzm', 'orderID', 'redeem_code', 'zhanghu', 'userid',
+    'huiyuanguize', 'lingqu3', 'shougong', 'qdzhb', 'applogin', 'weblog',
+    'init', 'yzm_status', 'create_date', 'r_status', 'c_status', 'status',
+    'details', 'pxtype', 'dev'
+]
+
+
+def _column_exists(cursor, table_name, column_name):
+    cursor.execute(
+        """
+        SELECT COUNT(*) AS cnt
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s AND COLUMN_NAME=%s
+        """,
+        (DB_CONFIG['database'], table_name, column_name),
+    )
+    row = cursor.fetchone()
+    if isinstance(row, dict):
+        return int(row.get('cnt') or 0) > 0
+    return int(row[0] or 0) > 0
+
+
+def _available_columns(cursor, table_name, candidate_columns):
+    cursor.execute(
+        """
+        SELECT COLUMN_NAME
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s
+        """,
+        (DB_CONFIG['database'], table_name),
+    )
+    rows = cursor.fetchall()
+    existing = {row['COLUMN_NAME'] if isinstance(row, dict) else row[0] for row in rows}
+    return [column for column in candidate_columns if column in existing]
+
+
+def _anj_task_payload(row):
+    redeem_code = row.get('redeem_code') or row.get('orderID')
+    tel = row.get('tel')
+    yzm = row.get('yzm')
+    create_date = row.get('create_date')
+    if isinstance(create_date, (datetime, date)):
+        create_date = create_date.strftime('%Y-%m-%d %H:%M:%S')
+    return {
+        'id': row.get('id'),
+        'tel': tel,
+        'phone': tel,
+        'yzm': yzm,
+        'code': yzm,
+        'orderID': row.get('orderID') or redeem_code,
+        'redeem_code': redeem_code,
+        'zhanghu': row.get('zhanghu'),
+        'userid': row.get('userid'),
+        'huiyuanguize': row.get('huiyuanguize'),
+        'lingqu3': row.get('lingqu3'),
+        'shougong': row.get('shougong'),
+        'qdzhb': row.get('qdzhb'),
+        'applogin': row.get('applogin'),
+        'weblog': row.get('weblog'),
+        'init': row.get('init'),
+        'yzm_status': str(row.get('yzm_status')) if row.get('yzm_status') is not None else None,
+        'create_date': create_date,
+        'r_status': row.get('r_status'),
+        'c_status': row.get('c_status'),
+        'status': row.get('status'),
+        'details': row.get('details'),
+        'pxtype': row.get('pxtype'),
+        'dev': row.get('dev'),
+    }
+
+
+def _anj_worker_id(data):
+    return str(data.get('worker_id') or data.get('device_id') or request.headers.get('X-Worker-Id') or 'anj-unknown')[:64]
+
+
+@app.post('/api/anj/claim')
+@worker_required
+def api_anj_claim():
+    data = _json_payload()
+    worker_id = _anj_worker_id(data)
+    conn = None
+    try:
+        conn = get_db_connection(dict_cursor=True, autocommit=False)
+        conn.begin()
+        with conn.cursor() as cursor:
+            columns = _available_columns(cursor, 'tel_data', ANJ_TASK_FIELDS)
+            select_columns = ', '.join(f'`{column}`' for column in columns)
+            cursor.execute(
+                f"""
+                SELECT {select_columns}
+                FROM tel_data
+                WHERE status='1'
+                  AND yzm_status='3'
+                  AND r_status IN ('等待', '准备登录')
+                ORDER BY id ASC
+                LIMIT 1
+                FOR UPDATE
+                """
+            )
+            task = cursor.fetchone()
+            if not task:
+                conn.rollback()
+                logger.info('anj claim empty worker_id=%s', worker_id)
+                return jsonify({'success': True, 'task': None, 'message': '暂无任务'}), 200
+
+            update_parts = ["status='2'", "r_status='准备登录'", "c_status='1'"]
+            params = []
+            if 'dev' in columns:
+                update_parts.append('dev=%s')
+                params.append(worker_id[:20])
+            params.append(task['id'])
+            cursor.execute(f"UPDATE tel_data SET {', '.join(update_parts)} WHERE id=%s", params)
+
+            for key, value in {'status': '2', 'r_status': '准备登录', 'c_status': '1'}.items():
+                task[key] = value
+            if 'dev' in columns:
+                task['dev'] = worker_id[:20]
+        conn.commit()
+        logger.info(
+            'anj task claimed worker_id=%s task_id=%s phone_tail=%s redeem_tail=%s',
+            worker_id,
+            task.get('id'),
+            _safe_tail(task.get('tel')),
+            _safe_tail(task.get('redeem_code') or task.get('orderID'), keep=6),
+        )
+        return jsonify({'success': True, 'task': _anj_task_payload(task)}), 200
+    except Exception:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        logger.exception('api_anj_claim failed worker_id=%s', worker_id)
+        return jsonify({'success': False, 'message': '服务器错误'}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.post('/api/anj/report')
+@worker_required
+def api_anj_report():
+    data = _json_payload()
+    task_id = data.get('id')
+    worker_id = _anj_worker_id(data)
+    if not task_id:
+        return jsonify({'success': False, 'message': '缺少 id'}), 400
+
+    conn = None
+    try:
+        conn = get_db_connection(dict_cursor=True, autocommit=False)
+        conn.begin()
+        with conn.cursor() as cursor:
+            cursor.execute('SELECT id, tel, orderID, redeem_code FROM tel_data WHERE id=%s FOR UPDATE', (task_id,))
+            task = cursor.fetchone()
+            if not task:
+                conn.rollback()
+                return jsonify({'success': False, 'message': '任务不存在'}), 404
+
+            allowed_fields = ['r_status', 'c_status', 'details', 'pxtype', 'userid', 'status']
+            columns = _available_columns(cursor, 'tel_data', allowed_fields)
+            update_values = {field: data[field] for field in allowed_fields if field in columns and field in data}
+
+            r_status = str(update_values.get('r_status') or data.get('r_status') or '')
+            if r_status in ANJ_SUCCESS_R_STATUS or r_status in ANJ_FAILED_R_STATUS:
+                update_values['c_status'] = '2'
+                update_values['status'] = '2'
+            elif r_status in ANJ_RUNNING_R_STATUS:
+                update_values['c_status'] = '1'
+                update_values['status'] = '2'
+
+            if 'details' in update_values and update_values['details'] is not None:
+                update_values['details'] = str(update_values['details'])[:2000]
+
+            if update_values:
+                update_parts = [f'`{field}`=%s' for field in update_values]
+                params = list(update_values.values()) + [task_id]
+                cursor.execute(f"UPDATE tel_data SET {', '.join(update_parts)} WHERE id=%s", params)
+        conn.commit()
+        logger.info(
+            'anj report accepted worker_id=%s task_id=%s r_status=%s phone_tail=%s redeem_tail=%s',
+            worker_id,
+            task_id,
+            r_status,
+            _safe_tail(task.get('tel')),
+            _safe_tail(task.get('redeem_code') or task.get('orderID'), keep=6),
+        )
+        return jsonify({'success': True, 'message': 'updated'}), 200
+    except Exception:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        logger.exception('api_anj_report failed worker_id=%s task_id=%s', worker_id, task_id)
+        return jsonify({'success': False, 'message': '服务器错误'}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.post('/api/anj/heartbeat')
+@worker_required
+def api_anj_heartbeat():
+    data = _json_payload()
+    worker_id = _anj_worker_id(data)
+    worker_status = str(data.get('status') or 'online')[:32]
+    conn = None
+    try:
+        conn = get_db_connection(autocommit=False)
+        with conn.cursor() as cursor:
+            cursor.execute('INSERT INTO run_status (dev, status, create_date) VALUES (%s, %s, NOW())', (worker_id, worker_status))
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO workers(worker_id, status, last_heartbeat_at, current_task_id)
+                    VALUES(%s, %s, NOW(), NULL)
+                    ON DUPLICATE KEY UPDATE status=VALUES(status), last_heartbeat_at=NOW(), current_task_id=NULL
+                    """,
+                    (worker_id, 'online' if worker_status not in {'offline', 'busy'} else worker_status),
+                )
+            except Exception as worker_exc:
+                logger.warning("anj heartbeat workers sync skipped worker_id=%s error=%s", worker_id, worker_exc)
+        conn.commit()
+        logger.info('anj heartbeat worker_id=%s status=%s', worker_id, worker_status)
+        return jsonify({'success': True, 'message': 'heartbeat accepted'}), 200
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        logger.exception('api_anj_heartbeat failed worker_id=%s', worker_id)
+        return jsonify({'success': False, 'message': '服务器错误'}), 500
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+@app.get('/api/anj/task/<int:task_id>')
+@worker_required
+def api_anj_task(task_id):
+    try:
+        conn = get_db_connection(dict_cursor=True, autocommit=True)
+        with conn.cursor() as cursor:
+            columns = _available_columns(cursor, 'tel_data', ANJ_TASK_FIELDS)
+            select_columns = ', '.join(f'`{column}`' for column in columns)
+            cursor.execute(f'SELECT {select_columns} FROM tel_data WHERE id=%s LIMIT 1', (task_id,))
+            task = cursor.fetchone()
+        conn.close()
+        if not task:
+            return jsonify({'success': False, 'message': '任务不存在'}), 404
+        logger.info(
+            'anj task queried task_id=%s phone_tail=%s redeem_tail=%s',
+            task_id,
+            _safe_tail(task.get('tel')),
+            _safe_tail(task.get('redeem_code') or task.get('orderID'), keep=6),
+        )
+        return jsonify({'success': True, 'task': _anj_task_payload(task)}), 200
+    except Exception:
+        logger.exception('api_anj_task failed task_id=%s', task_id)
+        return jsonify({'success': False, 'message': '服务器错误'}), 500
 
 
 def _normalize_task_input(data):
@@ -210,18 +480,18 @@ class dbClass:
 
             insert_sql = """
                 INSERT INTO tel_data(
-                    tel, yzm, orderID, zhanghu, huiyuanguize, lingqu3,
+                    tel, yzm, orderID, redeem_code, zhanghu, huiyuanguize, lingqu3,
                     shougong, qdzhb, applogin, weblog, init,
                     yzm_status, status, r_status, c_status, create_date
                 )
                 VALUES (
-                    %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s,
                     %s, '1', '等待', '1', NOW()
                 )
             """
             self.cursor.execute(insert_sql, [
-                token, UrlsID, orderID, zhanghu, huiyuanguize,
+                token, UrlsID, orderID, orderID, zhanghu, huiyuanguize,
                 lingqu3, shougong, qdzhb, applogin, weblog, init, yzm_status
             ])
 
@@ -298,7 +568,9 @@ class dbClass:
             sql = """
             SELECT tel,yzm,zhanghu,huiyuanguize,lingqu3,shougong,qdzhb,applogin,weblog,init,id,c_status,orderID
             FROM tel_data
-            WHERE status='1' AND yzm_status='3'
+            WHERE status='1'
+              AND yzm_status='3'
+              AND r_status IN ('等待', '准备登录')
             ORDER BY id ASC
             LIMIT 1
             FOR UPDATE
@@ -310,18 +582,20 @@ class dbClass:
                 return ""
 
             row_id = ret1[10]  # id 在第11列(0开始=10)
-
-            # ✅ 只改 status，不碰 c_status
-            upd = "UPDATE tel_data SET status='2' WHERE id=%s AND status='1'"
+            upd = """
+            UPDATE tel_data
+            SET status='2', r_status='准备登录'
+            WHERE id=%s AND status='1' AND yzm_status='3'
+            """
             self.cursor.execute(upd, (row_id,))
 
-            # 如果没更新到，说明极小概率被抢先了（或状态变化），回滚让上层重试
             if self.cursor.rowcount != 1:
                 self.conn.rollback()
                 return ""
 
             self.conn.commit()
-            return ",".join(map(str, ret1))
+            logger.info("legacy anj task claimed task_id=%s phone_tail=%s redeem_tail=%s", row_id, _safe_tail(ret1[0]), _safe_tail(ret1[12], keep=6))
+            return ",".join('' if value is None else str(value) for value in ret1)
 
         except Exception:
             self.conn.rollback()
@@ -645,6 +919,7 @@ def index():
 
 
 @app.route('/api', methods=['POST'])
+@app.route('/api/', methods=['POST'])
 def login():
     # ========= 1) 解析 JSON =========
     try:
@@ -773,18 +1048,18 @@ def login():
             # 插入 tel_data（同事务）
             insert_tel_sql = """
                 INSERT INTO tel_data(
-                    tel, yzm, orderID, zhanghu, huiyuanguize, lingqu3,
+                    tel, yzm, orderID, redeem_code, zhanghu, huiyuanguize, lingqu3,
                     shougong, qdzhb, applogin, weblog, init,
                     yzm_status, status, r_status, c_status, create_date, userid
                 )
                 VALUES(
-                    %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s,
                     %s, '1', '等待', '1', NOW(), %s
                 )
             """
             cursor.execute(insert_tel_sql, (
-                db_phone, db_code, orderID, zhanghu, huiyuanguize, lingqu3,
+                db_phone, db_code, orderID, orderID, zhanghu, huiyuanguize, lingqu3,
                 shougong, qdzhb, applogin, weblog, init,
                 yzm_status, (str(userid) if userid is not None else None)
             ))
@@ -1120,10 +1395,16 @@ def api_worker_report():
 
 @app.route('/getTelData')
 def getTelData():
+    auth_error = require_worker_token(json_response=False)
+    if auth_error is not None:
+        return auth_error
     db = dbClass()
     try:
         tel = db.get_teldata()
-        return tel
+        return tel, 200, {"Content-Type": "text/plain; charset=utf-8"}
+    except Exception as exc:
+        logger.exception("legacy getTelData failed")
+        return f"error: {exc}", 500, {"Content-Type": "text/plain; charset=utf-8"}
     finally:
         try:
             db.closeDb()
@@ -1183,22 +1464,64 @@ def update_r_status():
 # 接收并更新状态
 @app.route('/update_re_status', methods=['POST'])
 def update_re_status():
-    data = request.get_data(as_text=True)  # 获取传入的数据，例如 "2,成功"
-    print(data)
+    auth_error = require_worker_token(json_response=False)
+    if auth_error is not None:
+        return auth_error
 
-    # 将传入的数据按前三个逗号分割，第三个逗号之后的内容作为 details
-    parts = data.split(',', 3)  # 最多分割为 4 部分
-    if len(parts) == 4:
-        id, r_status, c_status, details = parts
-    else:
-        return {"code": "400", "msg": "数据格式不正确"}, 400
+    raw_body = request.get_data(as_text=True).strip()
+    parts = raw_body.split(',', 3)
+    if len(parts) < 4:
+        return "error: 数据格式不正确", 400, {"Content-Type": "text/plain; charset=utf-8"}
 
-    # 创建 dbClass 实例并更新数据库
-    db = dbClass()
-    db.update_re_status_by_id(id, r_status, c_status, details)
+    task_id, r_status, c_status, details = [part.strip() for part in parts[:3]] + [parts[3]]
+    if not task_id:
+        return "error: 缺少 id", 400, {"Content-Type": "text/plain; charset=utf-8"}
 
-    # 返回响应
-    return {"code": "200", "data": "1"}
+    final_c_status = c_status or '1'
+    final_status = None
+    if r_status in ANJ_SUCCESS_R_STATUS or r_status in ANJ_FAILED_R_STATUS:
+        final_c_status = '2'
+        final_status = '2'
+    elif r_status in ANJ_RUNNING_R_STATUS:
+        final_status = '2'
+
+    detail_parts = details.split(',')
+    pxtype = detail_parts[4].strip() if len(detail_parts) >= 5 and detail_parts[4].strip() else None
+
+    conn = None
+    try:
+        conn = get_db_connection(dict_cursor=True, autocommit=False)
+        conn.begin()
+        with conn.cursor() as cursor:
+            cursor.execute('SELECT id, tel, orderID, redeem_code FROM tel_data WHERE id=%s FOR UPDATE', (task_id,))
+            task = cursor.fetchone()
+            if not task:
+                conn.rollback()
+                return "error: 任务不存在", 404, {"Content-Type": "text/plain; charset=utf-8"}
+
+            columns = _available_columns(cursor, 'tel_data', ['r_status', 'c_status', 'details', 'pxtype', 'status'])
+            update_values = {'r_status': r_status, 'c_status': final_c_status, 'details': details[:2000]}
+            if final_status is not None:
+                update_values['status'] = final_status
+            if pxtype and 'pxtype' in columns:
+                update_values['pxtype'] = pxtype[:255]
+            update_values = {field: value for field, value in update_values.items() if field in columns}
+            update_parts = [f'`{field}`=%s' for field in update_values]
+            cursor.execute(f"UPDATE tel_data SET {', '.join(update_parts)} WHERE id=%s", list(update_values.values()) + [task_id])
+        conn.commit()
+        logger.info("legacy update_re_status task_id=%s r_status=%s phone_tail=%s redeem_tail=%s", task_id, r_status, _safe_tail(task.get('tel')), _safe_tail(task.get('redeem_code') or task.get('orderID'), keep=6))
+        return "ok", 200, {"Content-Type": "text/plain; charset=utf-8"}
+    except Exception as exc:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        logger.exception("legacy update_re_status failed task_id=%s r_status=%s", task_id, r_status)
+        return f"error: {exc}", 500, {"Content-Type": "text/plain; charset=utf-8"}
+    finally:
+        if conn:
+            conn.close()
 @app.route('/checkAndUpdateCStatus', methods=['POST'])
 def check_and_update_c_status():
     data = request.json
@@ -1223,18 +1546,44 @@ def check_and_update_c_status():
 # 接收并更新状态
 @app.route('/update_run_status', methods=['POST'])    
 def update_run_status():
-    data = request.get_data(as_text=True)  # 获取传入的数据，例如 "2,成功"
-    print(""+data)
+    auth_error = require_worker_token(json_response=False)
+    if auth_error is not None:
+        return auth_error
 
-    # 将传入的数据拆分为id和r_status
-    dev = data.split(',')
+    dev = request.get_data(as_text=True).strip()
+    if not dev:
+        return "error: 缺少 dev", 400, {"Content-Type": "text/plain; charset=utf-8"}
 
-    # 创建dbClass实例并更新数据库
-    db = dbClass()
-    db.update_run_status_id(dev)
-
-    # 返回响应
-    return {"code": "200", "data": "1"}
+    conn = None
+    try:
+        conn = get_db_connection(autocommit=False)
+        with conn.cursor() as cursor:
+            cursor.execute("INSERT INTO run_status (dev, status, create_date) VALUES (%s, %s, NOW())", (dev, 'online'))
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO workers(worker_id, status, last_heartbeat_at, current_task_id)
+                    VALUES(%s, 'online', NOW(), NULL)
+                    ON DUPLICATE KEY UPDATE status='online', last_heartbeat_at=NOW(), current_task_id=NULL
+                    """,
+                    (dev[:64],),
+                )
+            except Exception as worker_exc:
+                logger.warning("legacy heartbeat workers sync skipped dev=%s error=%s", dev[:64], worker_exc)
+        conn.commit()
+        logger.info("legacy update_run_status dev=%s", dev[:64])
+        return "ok", 200, {"Content-Type": "text/plain; charset=utf-8"}
+    except Exception as exc:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        logger.exception("legacy update_run_status failed dev=%s", dev[:64])
+        return f"error: {exc}", 500, {"Content-Type": "text/plain; charset=utf-8"}
+    finally:
+        if conn:
+            conn.close()
 @app.route('/c_status', methods=['POST'])
 def c_status():
     # 获取 POST 请求中的数据
