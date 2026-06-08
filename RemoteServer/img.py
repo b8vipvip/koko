@@ -1805,6 +1805,225 @@ def update_order_data():
     #print("="*60 + "\n")
     return f"up_result={up_result}"  
 
+# ----------------- 旧按键精灵本地 worker 兼容接口 -----------------
+ANJ_SUCCESS_R_STATUS = {'充值成功', '成功', '已成功', '手动成功'}
+ANJ_FAILED_R_STATUS = {'失败', '无效订单', '重复订单', '验证码失效', '验证错', '超时', '已拦截'}
+ANJ_RUNNING_R_STATUS = {'准备登录', 'webdl', 'appdl', '登录成功', '正在充值', '充值中'}
+
+
+def plain_text_response(body, status=200):
+    """返回旧按键精灵可直接读取的 UTF-8 纯文本响应。"""
+    return body, status, {'Content-Type': 'text/plain; charset=utf-8'}
+
+
+@app.route('/getTelData', methods=['GET'])
+@require_local_token
+def get_tel_data():
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(pymysql.cursors.Cursor)
+        conn.begin()
+        cursor.execute("""
+            SELECT tel,yzm,zhanghu,huiyuanguize,lingqu3,shougong,qdzhb,applogin,weblog,init,id,c_status,orderID
+            FROM tel_data
+            WHERE status='1'
+              AND yzm_status='3'
+              AND r_status IN ('等待', '准备登录')
+            ORDER BY id ASC
+            LIMIT 1
+            FOR UPDATE
+        """)
+        row = cursor.fetchone()
+        if not row:
+            conn.rollback()
+            return plain_text_response('')
+
+        cursor.execute("""
+            UPDATE tel_data SET status='2', r_status='准备登录'
+            WHERE id=%s AND status='1' AND yzm_status='3'
+        """, (row[10],))
+        if cursor.rowcount != 1:
+            conn.rollback()
+            return plain_text_response('')
+
+        conn.commit()
+        return plain_text_response(','.join('' if value is None else str(value) for value in row))
+    except Exception as exc:
+        if conn:
+            conn.rollback()
+        print(f"❌ getTelData 异常：{exc}")
+        return plain_text_response(f'error: {exc}', 500)
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+@app.route('/update_run_status', methods=['POST'])
+@require_local_token
+def update_run_status():
+    dev = request.get_data(as_text=True).strip()
+    if not dev:
+        return plain_text_response('error', 400)
+
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO run_status (dev, status, create_date) VALUES (%s, 'online', NOW())",
+            (dev,),
+        )
+        try:
+            cursor.execute("""
+                INSERT INTO workers (worker_id, status, last_heartbeat_at, current_task_id)
+                VALUES (%s, 'online', NOW(), NULL)
+                ON DUPLICATE KEY UPDATE
+                    status='online', last_heartbeat_at=NOW(), current_task_id=NULL
+            """, (dev[:64],))
+        except Exception as worker_exc:
+            print(f"⚠️ workers 心跳同步失败，已忽略：{worker_exc}")
+        conn.commit()
+        return plain_text_response('ok')
+    except Exception as exc:
+        if conn:
+            conn.rollback()
+        print(f"❌ update_run_status 异常：{exc}")
+        return plain_text_response(f'error: {exc}', 500)
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+@app.route('/update_re_status', methods=['POST'])
+@require_local_token
+def update_re_status():
+    parts = request.get_data(as_text=True).split(',', 3)
+    if len(parts) != 4:
+        return plain_text_response('error', 400)
+
+    record_id, r_status, c_status, details = parts
+    record_id = record_id.strip()
+    r_status = r_status.strip()
+    c_status = c_status.strip()
+    if r_status in ANJ_SUCCESS_R_STATUS or r_status in ANJ_FAILED_R_STATUS:
+        c_status = '2'
+    status = '2'
+
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE tel_data
+            SET r_status=%s, c_status=%s, details=%s, status=%s
+            WHERE id=%s
+        """, (r_status, c_status, details[:2000], status, record_id))
+        conn.commit()
+        return plain_text_response('ok')
+    except Exception as exc:
+        if conn:
+            conn.rollback()
+        print(f"❌ update_re_status 异常：{exc}")
+        return plain_text_response(f'error: {exc}', 500)
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+@app.route('/c_status', methods=['POST'])
+@require_local_token
+def get_c_status():
+    record_id = request.get_data(as_text=True).strip()
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(pymysql.cursors.Cursor)
+        cursor.execute("SELECT c_status FROM tel_data WHERE id=%s", (record_id,))
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({'error': 'ID not found'}), 404
+        return jsonify({'c_status': row[0]})
+    except Exception as exc:
+        print(f"❌ c_status 异常：{exc}")
+        return jsonify({'error': str(exc)}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+@app.route('/update_r_status', methods=['POST'])
+@require_local_token
+def update_r_status():
+    parts = request.get_data(as_text=True).split(',', 3)
+    if len(parts) != 4:
+        return {'code': '400', 'msg': '数据格式不正确'}, 400
+
+    record_id, r_status, pxtype, details = parts
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE tel_data SET r_status=%s, pxtype=%s, details=%s WHERE id=%s
+        """, (r_status, pxtype, details, record_id))
+        conn.commit()
+        return {'code': '200', 'data': '1'}
+    except Exception as exc:
+        if conn:
+            conn.rollback()
+        print(f"❌ update_r_status 异常：{exc}")
+        return {'code': '500', 'msg': str(exc)}, 500
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+@app.route('/img_updata', methods=['POST'])
+@require_local_token
+def img_updata():
+    parts = request.get_data(as_text=True).split(',', 3)
+    if len(parts) != 4:
+        return {'code': '400', 'msg': '数据格式不正确'}, 400
+
+    tel_id, status, cz_status, img_name = parts
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO img_data (tel_id, img_name, status, cz_status, create_date)
+            VALUES (%s, %s, %s, %s, NOW())
+        """, (tel_id, img_name, status, cz_status))
+        conn.commit()
+        return {'code': '200', 'data': '1'}
+    except Exception as exc:
+        if conn:
+            conn.rollback()
+        print(f"❌ img_updata 异常：{exc}")
+        return {'code': '500', 'msg': str(exc)}, 500
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
 @app.route('/code_upload_batch', methods=['POST'])
 @require_local_token
 def code_upload_batch():
