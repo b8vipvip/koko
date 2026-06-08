@@ -9,6 +9,10 @@ import pyautogui
 import subprocess
 import schedule
 import threading
+import functools
+import hmac
+import shutil
+from dotenv import load_dotenv
 from flask import Flask, send_from_directory, request, jsonify
 import os
 import json
@@ -18,8 +22,10 @@ from openai import OpenAI
 import cv2
 import numpy as np
 import re
-# 计算 img.py 文件的所在目录
+# 计算 img.py 文件的所在目录，并加载同目录/当前目录中的 .env。
 base_dir = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(base_dir, '.env'))
+load_dotenv()
 
 # 静态文件夹设置为绝对路径
 static_dir = os.path.join(base_dir, 'static')
@@ -32,36 +38,75 @@ app = Flask(__name__, static_folder=static_dir)
 
 upload_thread_lock = threading.Lock()
 upload_thread_started = False
-LOG_DIR = r"D:\leidian\auto-tool\img\test"
+
+
+def env_int(name, default):
+    """读取整数环境变量，非法值时安全回退。"""
+    try:
+        return int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        print(f"⚠️ 环境变量 {name} 不是有效整数，使用默认值 {default}")
+        return default
+
+
+LOG_DIR = os.getenv("LOG_DIR", r"D:\leidian\auto-tool\img\test")
 LOG_PATH = os.path.join(LOG_DIR, "slider.txt")
-
-
+LOCAL_API_TOKEN = os.getenv("LOCAL_API_TOKEN", "")
 
 # ----------------- MySQL 数据库配置 -----------------
 db_config = {
-    'host': '134',
-    'user': 'kugo',
-    'password': 'HP77',
-    'database': 'kugo',
-    'charset': 'utf8mb4',
-    'cursorclass': pymysql.cursors.DictCursor
+    'host': os.getenv('DB_HOST', '127.0.0.1'),
+    'port': env_int('DB_PORT', 13306),
+    'user': os.getenv('DB_USER', 'kugo'),
+    'password': os.getenv('DB_PASSWORD', ''),
+    'database': os.getenv('DB_NAME', 'kugo'),
+    'charset': os.getenv('DB_CHARSET', 'utf8mb4'),
+    'cursorclass': pymysql.cursors.DictCursor,
+    'connect_timeout': env_int('DB_CONNECT_TIMEOUT', 10),
+    'read_timeout': env_int('DB_READ_TIMEOUT', 30),
+    'write_timeout': env_int('DB_WRITE_TIMEOUT', 30),
 }
+
+
+def get_db_connection(**overrides):
+    """创建带连接/读/写超时的短生命周期 MySQL 连接。"""
+    config = dict(db_config)
+    config.update(overrides)
+    return pymysql.connect(**config)
+
+
+def require_local_token(view_func):
+    """保护本地任务器接口；未配置 token 时只接受 127.0.0.1。"""
+    @functools.wraps(view_func)
+    def wrapped(*args, **kwargs):
+        if LOCAL_API_TOKEN:
+            supplied = request.headers.get('X-Local-Token', '') or request.args.get('token', '')
+            allowed = hmac.compare_digest(supplied, LOCAL_API_TOKEN)
+        else:
+            allowed = request.remote_addr == '127.0.0.1'
+        if not allowed:
+            return "Unauthorized", 401
+        return view_func(*args, **kwargs)
+    return wrapped
+
+
+def mask_value(value, keep=4):
+    """日志仅展示手机号、订单号等标识的尾号。"""
+    text = str(value or '')
+    return ('*' * max(0, len(text) - keep)) + text[-keep:] if text else ''
 
 
 # ----------------- 图床 API 配置 -----------------
+api_url = os.getenv("LSKY_API_URL", "https://lsky.k2n.cn/api/v1/upload")
+lsky_token = os.getenv("LSKY_TOKEN", "")
+headers = {"Accept": "application/json"}
+if lsky_token:
+    headers["Authorization"] = f"Bearer {lsky_token}"
 
-api_url = "https://lsky.k2n.cn/api/v1/upload"
-headers = {
-    "Authorization": "Bearer 2|W8T4ej2XNv",
-    "Accept": "application/json"
-}
-
-local_image_folder = fr'D:\leidian\记录\充值成功'
-print(local_image_folder)
-
-data = {
-    'strategy_id': '3'  # 存储策略ID
-}
+local_image_folder = os.getenv("LOCAL_IMAGE_FOLDER", r"D:\leidian\记录\充值成功")
+screenshots_folder = os.getenv("SCREENSHOTS_FOLDER", r"D:\leidian\Screenshots")
+ocr_image_folder = os.getenv("OCR_IMAGE_FOLDER", r"D:\leidian\ocr_yz")
+data = {'strategy_id': str(env_int('LSKY_STRATEGY_ID', 3))}
 
 # ----------------- SQLite 配置 -----------------
 sqlite_path = r'D:\leidian\记录\价格页面\order.db'
@@ -72,10 +117,13 @@ last_synced_order_id = 0
 
 # ----------------- 图片上传部分 -----------------
 def upload_image(file_path):
+    if not lsky_token:
+        print("❌ LSKY_TOKEN 未配置，跳过上传")
+        return None, None
     try:
         with open(file_path, 'rb') as img_file:
             files = {'file': img_file}
-            response = requests.post(api_url, headers=headers, files=files, data=data)
+            response = requests.post(api_url, headers=headers, files=files, data=data, timeout=(10, 60))
             response.raise_for_status()
             response_data = response.json()
             #print(f"API 返回数据: {response_data}")
@@ -107,6 +155,7 @@ def update_img_data(cursor, record_id, url, thumbnail_url):
             print(f"未更新 img_data 表，记录 ID = {record_id}")
     except Exception as e:
         print(f"更新 img_data 表时出错: {e}")
+        raise
 
 
 def update_tel_data(cursor, tel_id, url, thumbnail_url, cz_status):
@@ -134,36 +183,46 @@ def update_tel_data(cursor, tel_id, url, thumbnail_url, cz_status):
             print(f"未更新 tel_data 表，记录 ID = {tel_id}")
     except Exception as e:
         print(f"更新 tel_data 表时出错: {e}")
+        raise
 
 
 def check_and_upload_screenshots():
-    screenshots_folder = r'D:\leidian\Screenshots'
+    """上传截图；失败文件移入 failed，绝不因上传失败直接删除。"""
+    if not os.path.isdir(screenshots_folder):
+        return
+
+    failed_folder = os.path.join(screenshots_folder, 'failed')
     for filename in os.listdir(screenshots_folder):
         file_path = os.path.join(screenshots_folder, filename)
+        if not (os.path.isfile(file_path) and filename.lower().endswith(('.png', '.jpg', '.jpeg'))):
+            continue
 
-        if os.path.isfile(file_path) and filename.lower().endswith(('.png', '.jpg', '.jpeg')):
-            print(f"正在上传图片: {filename}")
-
-            url, thumbnail_url = upload_image(file_path)
-
-            if url and thumbnail_url:
-                print(f"图片上传成功，URL: {url}")
-            else:
-                print(f"上传图片失败: {filename}")
-
+        url, thumbnail_url = upload_image(file_path)
+        if url and thumbnail_url:
             try:
                 os.remove(file_path)
-                print(f"已删除本地图片: {file_path}")
-            except Exception as delete_error:
-                print(f"删除本地图片时出错: {delete_error}")
+                print(f"✅ 截图上传成功并删除本地文件: {filename}")
+            except OSError as delete_error:
+                print(f"⚠️ 截图已上传，但删除 {filename} 失败: {delete_error}")
+            continue
 
+        try:
+            os.makedirs(failed_folder, exist_ok=True)
+            destination = os.path.join(failed_folder, filename)
+            if os.path.exists(destination):
+                stem, suffix = os.path.splitext(filename)
+                destination = os.path.join(failed_folder, f"{stem}_{int(time.time())}{suffix}")
+            shutil.move(file_path, destination)
+            print(f"⚠️ 截图上传失败，已移动到 failed: {filename}")
+        except OSError as move_error:
+            print(f"❌ 截图上传失败且无法移动 {filename}: {move_error}")
 
 def get_order_data_anj_data():
     """【替换原get_sqlite_data】从MySQL的order_data_anj表，获取processed=1的待同步数据"""
     conn = None
     cursor = None
     try:
-        conn = pymysql.connect(**db_config)
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         # 查询order_data_anj中待同步的记录（processed=1）
@@ -199,7 +258,7 @@ def update_order_data_anj_processed(ids):
     conn = None
     cursor = None
     try:
-        conn = pymysql.connect(**db_config)
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         # 生成批量更新的占位符（%s），防止SQL注入
@@ -252,46 +311,46 @@ def insert_into_order_data(cursor, columns, rows):
         print(f"❌ 插入 order_data 表失败: {e}")
         return False
 def sync_order_data_anj_to_order_data():
-    """【替换原sync_sqlite_to_mysql】核心同步函数：order_data_anj → order_data"""
-    # 步骤1：从order_data_anj获取待同步数据（processed=1）
-    columns, sync_rows = get_order_data_anj_data()
-    if not sync_rows:
-        print("ℹ️ 无需要同步的order_data_anj数据")
-        return
-
-    # 步骤2：提取待同步记录的id列表（用于后续标记已同步）
-    #ids_to_update = [row[0] for row in sync_rows]  # order_data_anj的id字段是第一列
-    ids_to_update = [row['id'] for row in sync_rows]
-
-    # 步骤3：连接MySQL，插入数据到order_data表
+    """在同一 MySQL 事务内完成 order_data_anj → order_data 同步和状态更新。"""
     conn = None
     cursor = None
     try:
-        conn = pymysql.connect(**db_config)
+        conn = get_db_connection()
         cursor = conn.cursor()
-
-        # 执行插入操作
-        insert_success = insert_into_order_data(cursor, columns, sync_rows)
-        
-        if insert_success:
-            # 步骤4：插入成功后，标记order_data_anj的记录为已同步（processed=2）
-            update_order_data_anj_processed(ids_to_update)
+        conn.begin()
+        cursor.execute("""
+            SELECT * FROM order_data_anj
+            WHERE processed = 1 AND result = '充值成功'
+            ORDER BY id ASC
+            FOR UPDATE
+        """)
+        rows = cursor.fetchall()
+        if not rows:
             conn.commit()
-            print("✅ 完整同步流程执行成功")
-        else:
-            conn.rollback()
-            print("❌ 插入order_data表失败，同步流程回滚")
+            return
 
+        columns = [desc[0] for desc in cursor.description]
+        ids_to_update = [row['id'] for row in rows]
+        if not insert_into_order_data(cursor, columns, rows):
+            raise RuntimeError('插入 order_data 失败')
+
+        placeholders = ','.join(['%s'] * len(ids_to_update))
+        cursor.execute(
+            f"UPDATE order_data_anj SET processed = 2 WHERE id IN ({placeholders})",
+            ids_to_update,
+        )
+        conn.commit()
+        print(f"✅ 同一事务内完成 {len(ids_to_update)} 条 order_data 同步")
     except Exception as e:
         if conn:
             conn.rollback()
-        print(f"❌ 同步流程整体失败: {e}")
-        
+        print(f"❌ 同步流程整体失败并已回滚: {e}")
     finally:
         if cursor:
             cursor.close()
         if conn:
             conn.close()
+
 def select_instances_and_start():
     # 点击“精灵图标”
     pyautogui.click(x=318, y=213)  # 需要你确认按钮的大致位置
@@ -312,20 +371,18 @@ def sync_order_data_to_mysql():
     mysql_cursor = None
 
     def ensure_mysql_column(cursor, table_name, column_name, column_def):
-        """校验并添加MySQL表字段（保留原有逻辑）"""
-        # 改为兼容pymysql的元组返回格式
-        cursor.execute(f"SHOW COLUMNS FROM {table_name}")
-        fields = [col[0] for col in cursor.fetchall()]  # pymysql默认返回元组，取第一个元素为字段名
+        """仅检查字段；缺失时提示人工迁移，运行时绝不修改表结构。"""
+        cursor.execute(f"SHOW COLUMNS FROM `{table_name}`")
+        fields = [col[0] for col in cursor.fetchall()]
         if column_name not in fields:
-            cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}")
-            print(f"✅ 字段 `{column_name}` 添加完成。")
-        else:
-            print(f"✅ 字段 `{column_name}` 已存在。")
+            print(f"❌ 表 `{table_name}` 缺少字段 `{column_name}`，请先人工执行数据库迁移。")
+            return False
+        return True
 
     try:
         # 建立MySQL连接（复用一个连接操作两个表）
-        mysql_conn = pymysql.connect(**db_config)
-        mysql_cursor = mysql_conn.cursor()
+        mysql_conn = get_db_connection()
+        mysql_cursor = mysql_conn.cursor(pymysql.cursors.Cursor)
 
         # --- 打印当前 MySQL 数据库 ---
         mysql_cursor.execute("SELECT DATABASE()")
@@ -333,12 +390,14 @@ def sync_order_data_to_mysql():
         print("✅ 当前连接的数据库：", db_name)
 
         # --- 验证order_id表的upmysql_status字段存在 ---
-        ensure_mysql_column(
+        if not ensure_mysql_column(
             mysql_cursor,
             'order_id',
             'upmysql_status',
             "INT DEFAULT 1 COMMENT '是否已同步：1未上传，2已上传'"
-        )
+        ):
+            mysql_conn.rollback()
+            return
 
         # --- 替换SQLite：查询order_data_anj中需要同步的数据 ---
         query_sql = """
@@ -368,14 +427,10 @@ def sync_order_data_to_mysql():
                 mysql_cursor.execute(insert_sql, values)
                 count += 1
             except Exception as e:
-                print(f"❌ 插入order_id表失败（订单数据：{row_dict.get('orderID')}）: {e}")
-                import traceback
-                traceback.print_exc()
+                print(f"❌ 插入order_id表失败（订单尾号：{mask_value(row_dict.get('orderID'))}）: {e}")
+                raise
 
-        # 提交写入order_id表的事务
-        mysql_conn.commit()
-
-        # --- 替换SQLite：更新order_data_anj的同步状态为2 ---
+        # --- 更新order_data_anj的同步状态；与上面的插入使用同一事务 ---
         update_sql = """
         UPDATE order_data_anj 
         SET upmysql_status = 2 
@@ -403,66 +458,51 @@ def sync_order_data_to_mysql():
 
 # ----------------- 主循环 -----------------
 def check_and_upload_images():
-    connection = pymysql.connect(**db_config)
+    """后台轮询；每轮创建并关闭连接，避免永久持有失效连接。"""
     iteration_count = 0
-    sqlite_sync_timer = 0
-
-    try:
-        print(f"[{datetime.now()}] 📤 图片上传线程已启动")
-
-        while True:
-            time.sleep(5)
-            iteration_count += 1
-            #print(f"[{datetime.now()}] 循环: {iteration_count}")
-            print(f"[{datetime.now().strftime('%H:%M:%S.%f')}] 当前循环次数: {iteration_count}")
+    sync_timer = 0
+    print(f"[{datetime.now()}] 📤 图片上传线程已启动")
+    while True:
+        time.sleep(5)
+        iteration_count += 1
+        sync_timer += 5
+        connection = None
+        try:
             check_and_upload_screenshots()
+            if sync_timer >= 30:
+                sync_order_data_anj_to_order_data()
+                sync_timer = 0
 
+            connection = get_db_connection()
             with connection.cursor() as cursor:
-                sqlite_sync_timer += 5
-                if sqlite_sync_timer >= 30:
-                    try:
-                        sync_order_data_anj_to_order_data()
-                    except Exception as e:
-                        print("❌ 同步任务异常，不影响主循环：", e)
-                    sqlite_sync_timer = 0
-
                 cursor.execute("SELECT * FROM img_data WHERE status = 1")
-                records = cursor.fetchall()
-
-                for record in records:
+                for record in cursor.fetchall():
                     img_name = record['img_name']
                     file_path = os.path.join(local_image_folder, img_name)
+                    if not os.path.exists(file_path):
+                        print(f"⚠️ 待上传图片不存在: {img_name}")
+                        continue
+                    url, thumbnail_url = upload_image(file_path)
+                    if not (url and thumbnail_url):
+                        print(f"⚠️ 图片上传失败，保留本地文件: {img_name}")
+                        continue
+                    update_img_data(cursor, record['id'], url, thumbnail_url)
+                    update_tel_data(cursor, record['tel_id'], url, thumbnail_url, record['cz_status'])
+                    os.remove(file_path)
+                    print(f"✅ 图片上传并回写完成: {img_name}")
+            connection.commit()
+        except Exception as e:
+            if connection:
+                connection.rollback()
+            print(f"[{datetime.now()}] 检查上传图片时出错并已回滚: {e}")
+        finally:
+            if connection:
+                connection.close()
 
-                    if os.path.exists(file_path):
-                        print(f"[{datetime.now()}] 正在上传图片: {img_name}")
-                        url, thumbnail_url = upload_image(file_path)
-
-                        if url and thumbnail_url:
-                            update_img_data(cursor, record['id'], url, thumbnail_url)
-                            tel_id = record['tel_id']
-                            cz_status = record['cz_status']
-                            update_tel_data(cursor, tel_id, url, thumbnail_url, cz_status)
-
-                            try:
-                                os.remove(file_path)
-                                print(f"[{datetime.now()}] 已删除本地图片: {file_path}")
-                            except Exception as delete_error:
-                                print(f"[{datetime.now()}] 删除本地图片时出错: {delete_error}")
-                    else:
-                        print(f"[{datetime.now()}] 图片文件 {img_name} 未找到")
-
-                connection.commit()
-
-    except Exception as e:
-        print(f"[{datetime.now()}] 检查上传图片时出错: {e}")
-    finally:
-        connection.close()
-        print(f"[{datetime.now()}] 数据库连接已关闭")
-  
 def delete_old_run_status():
     connection = None
     try:
-        connection = pymysql.connect(**db_config)
+        connection = get_db_connection()
 
         with connection.cursor() as cursor:
             cutoff_time = datetime.now() - timedelta(minutes=5)
@@ -475,7 +515,9 @@ def delete_old_run_status():
             print(f"[{datetime.now()}] ✅ 已删除 create_date < {cutoff_time} 的 run_status 记录")
 
     except Exception as e:
-        print(f"❌ 删除失败: {e}")
+        if connection:
+            connection.rollback()
+        print(f"❌ 删除失败并已回滚: {e}")
 
     finally:
         if connection:
@@ -525,6 +567,7 @@ def check_order_id_duplicate(order_id, cursor_mysql):
 
 
 @app.route('/submit_order', methods=['POST'])
+@require_local_token
 def submit_order():
     connection_mysql = None
     cursor_mysql = None
@@ -554,7 +597,7 @@ def submit_order():
             adminkami = 0
 
         # 建立MySQL连接和游标（复用一个连接操作双表）
-        connection_mysql = pymysql.connect(**db_config)
+        connection_mysql = get_db_connection()
         cursor_mysql = connection_mysql.cursor()
 
         generated_order_ids = []
@@ -641,30 +684,25 @@ def submit_order():
             print("关闭 MySQL 连接时出错：", e)
 
 @app.route('/extract_order', methods=['POST'])
+@require_local_token
 def extract_order():
+    connection_mysql = None
+    cursor_mysql = None
     try:
-        data = request.get_json()
-        print("收到提取请求：", data)
-
+        data = request.get_json() or {}
         order_count = int(data.get('order_count', 10))
-        
         order_type = data.get('order_type')
         order_price = float(data.get('order_price'))
         warehouse = data.get('warehouse')
 
         if warehouse == '91':
-            _91kami = 1
-            adminkami = 2
+            _91kami, adminkami = 1, 2
         elif warehouse == 'admin':
-            _91kami = 2
-            adminkami = 1
+            _91kami, adminkami = 2, 1
         else:
-            _91kami = 0
-            adminkami = 0
+            _91kami, adminkami = 0, 0
 
-        extracted_order_ids = []
-
-        connection_mysql = pymysql.connect(**db_config)
+        connection_mysql = get_db_connection()
         cursor_mysql = connection_mysql.cursor()
         cursor_mysql.execute(
             """
@@ -674,16 +712,18 @@ def extract_order():
             """,
             (order_type, order_price, _91kami, adminkami, order_count)
         )
-        rows = cursor_mysql.fetchall()
-        extracted_order_ids = [row['orderID'] for row in rows]
-        cursor_mysql.close()
-        connection_mysql.close()
-
+        extracted_order_ids = [row['orderID'] for row in cursor_mysql.fetchall()]
         return jsonify({"success": True, "message": f"成功提取 {len(extracted_order_ids)} 个订单号", "order_ids": extracted_order_ids})
-
     except Exception as e:
+        if connection_mysql:
+            connection_mysql.rollback()
         print("提取订单出错：", str(e))
         return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        if cursor_mysql:
+            cursor_mysql.close()
+        if connection_mysql:
+            connection_mysql.close()
 
 
 def find_gap_center_local(img_path: str, debug_save: bool = False):
@@ -844,22 +884,19 @@ def find_gap_center_local(img_path: str, debug_save: bool = False):
 
 
 # ----------------- 2Captcha 配置 -----------------
-CAPTCHA_API_KEY = "30c524729d7c83ca4caee99b9da34550"  # <<< 替换成你的2Captcha API KEY
+CAPTCHA_API_KEY = os.getenv("CAPTCHA_API_KEY", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
-# ----------------- OpenAI Vision 配置（通用图像分析，不影响旧逻辑） -----------------
-# ===== OFOX 配置 =====
-#OPENAI_API_KEY = "sk-of-FETvJXXOhm"
-#OPENAI_BASE_URL = "https://api.ofox.ai/v1"
-#OPENAI_MODEL = "openai/gpt-4o"
 
-# ===== OFOX 配置 =====
-OPENAI_API_KEY = "sk-o1MGCVvd"
-OPENAI_BASE_URL = "https://apihost.cn/v1"
-OPENAI_MODEL = "gpt-5.4"
-client = OpenAI(
-    base_url=OPENAI_BASE_URL,
-    api_key=OPENAI_API_KEY
-)
+def get_openai_client():
+    if not OPENAI_API_KEY:
+        raise RuntimeError("OPENAI_API_KEY 未配置")
+    options = {"api_key": OPENAI_API_KEY}
+    if OPENAI_BASE_URL:
+        options["base_url"] = OPENAI_BASE_URL
+    return OpenAI(**options)
 
 
 def image_to_base64(img_path):
@@ -903,7 +940,7 @@ def analyze_grid_image(img_path, task_text, rows=2, cols=3):
                 """
     
 
-    resp = client.chat.completions.create(
+    resp = get_openai_client().chat.completions.create(
         model=OPENAI_MODEL,
         messages=[
             {
@@ -935,6 +972,7 @@ def analyze_grid_image(img_path, task_text, rows=2, cols=3):
 
     return cell_id, text
 @app.route('/analyze_grid', methods=['GET'])
+@require_local_token
 def analyze_grid():
 
     print("\n📥 收到请求 /analyze_grid")
@@ -965,7 +1003,7 @@ def analyze_image_by_ai(img_path, task_text, detail="low"):
 
     prompt = task_text.strip()
 
-    resp = client.chat.completions.create(
+    resp = get_openai_client().chat.completions.create(
         model=OPENAI_MODEL,
         messages=[
             {
@@ -991,6 +1029,7 @@ def extract_numbers(text):
     nums = re.findall(r'\d+', text)
     return ",".join(nums) if nums else "0"
 @app.route('/analyze_image', methods=['GET'])
+@require_local_token
 def analyze_image():
     print("\n📥 收到请求 /analyze_image")
 
@@ -1027,7 +1066,7 @@ def write_generic_log(task_text: str, local_image_path: str, response_text: str)
         generic_log_path = os.path.join(LOG_DIR, "generic_image_task.txt")
         os.makedirs(LOG_DIR, exist_ok=True)
         with open(generic_log_path, "a", encoding="utf-8") as f:
-            f.write(f"{now_str} | task={task_text} | path={local_image_path} | resp={response_text}\n")
+            f.write(f"{now_str} | task={task_text} | file={os.path.basename(local_image_path)} | resp={response_text}\n")
         print(f"📝 已记录到 generic_image_task.txt")
     except Exception as log_err:
         print(f"⚠️ 写入 generic_image_task.txt 失败: {log_err}")
@@ -1043,8 +1082,10 @@ def handle_generic_image_task(image_path: str, task_text: str, extra_prompt: str
     result_json = None
     raw_text = ""
     try:
-        result_json, raw_text = analyze_image_with_openai(local_image_path, task_text, extra_prompt)
-        write_generic_log(task_text, local_image_path, raw_text)
+        prompt = "\n".join(part for part in (task_text, extra_prompt) if part).strip()
+        raw_text = analyze_image_by_ai(local_image_path, prompt, detail="high")
+        result_json = {"ok": True, "result": raw_text}
+        write_generic_log(task_text, os.path.basename(local_image_path), raw_text)
         return jsonify(result_json)
     except Exception as e:
         raw_text = json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False)
@@ -1057,14 +1098,14 @@ def android_to_windows_path(android_path):
         return None
 
     android_path = android_path.strip().replace('"', '').replace("'", '')
-    print(f"🟠 原始安卓路径参数: {android_path}")
+    print(f"🟠 收到图片路径: {os.path.basename(android_path)}")
 
     filename = os.path.basename(android_path)
     print(f"🟠 解析出的文件名: {filename}")
 
-    windows_base = r"D:\leidian\ocr_yz"
+    windows_base = ocr_image_folder
     local_path = os.path.join(windows_base, filename)
-    print(f"🟢 转换后的本地Windows路径: {local_path}")
+    print(f"🟢 已转换本地图片路径: {os.path.basename(local_path)}")
 
     return local_path
 
@@ -1313,8 +1354,8 @@ def handle_slider_coords(image_path: str):
     finally:
         payload = {
             "task": task_id,
-            "image_path": image_path,
-            "local_image_path": local_image_path,
+            "image_path": os.path.basename(image_path or ""),
+            "local_image_path": os.path.basename(local_image_path or ""),
             "raw_local": coords_raw,
             "resp": response_text
         }
@@ -1355,14 +1396,15 @@ def handle_generic_coords(image_path: str, task_type: str = ""):
 
     finally:
         payload = {
-            "image_path": image_path,
-            "local_image_path": local_image_path,
+            "image_path": os.path.basename(image_path or ""),
+            "local_image_path": os.path.basename(local_image_path or ""),
             "result": result
         }
         write_mode_log("generic_image_task.txt", "generic", payload)
 
 
 @app.route('/get_coords', methods=['GET'])
+@require_local_token
 def get_coords():
     print("\n📥 收到请求 /get_coords")
 
@@ -1399,57 +1441,40 @@ def get_coords():
 
 
 @app.route('/uporderid_status', methods=['POST'])
+@require_local_token
 def uporderid_status():
+    connection = None
+    cursor = None
     try:
-        # 强制解析JSON格式的POST数据（兼容非标准Content-Type）
         data = request.get_json(force=True)
         order_id = data.get('orderID')
-        
-        # 校验orderID是否为空
         if not order_id:
             return jsonify({"success": False, "error": "Missing orderID"}), 400
 
-        print(f"✅ 收到要更新的 orderID: {order_id}")
-
-        # ---------- 原有逻辑：更新 MySQL 的 order_id 表 ----------
-        connection_mysql1 = pymysql.connect(**db_config)
-        cursor_mysql1 = connection_mysql1.cursor()
-        cursor_mysql1.execute(
-            "UPDATE order_id SET status = 1 WHERE orderID = %s",
-            (order_id,)
-        )
-        connection_mysql1.commit()
-        mysql1_rows = cursor_mysql1.rowcount
-        cursor_mysql1.close()
-        connection_mysql1.close()
-
-        print(f"✅ MySQL(order_id表) 更新行数: {mysql1_rows}")
-
-        # ---------- 替换SQLite：更新 MySQL 的 order_data_anj 表 ----------
-        connection_mysql2 = pymysql.connect(**db_config)
-        cursor_mysql2 = connection_mysql2.cursor()
-        # 同步更新order_data_anj表的status为1（和原SQLite逻辑一致）
-        cursor_mysql2.execute(
-            "UPDATE order_data_anj SET status = 1 WHERE orderID = %s",
-            (order_id,)
-        )
-        connection_mysql2.commit()
-        mysql2_rows = cursor_mysql2.rowcount
-        cursor_mysql2.close()
-        connection_mysql2.close()
-
-        print(f"✅ MySQL(order_data_anj表) 更新行数: {mysql2_rows}")
-
-        # 返回结果：保留原有字段名（兼容前端），但值对应新的MySQL表
+        print(f"✅ 收到要更新的订单尾号: {mask_value(order_id)}")
+        connection = get_db_connection()
+        cursor = connection.cursor()
+        connection.begin()
+        cursor.execute("UPDATE order_id SET status = 1 WHERE orderID = %s", (order_id,))
+        mysql1_rows = cursor.rowcount
+        cursor.execute("UPDATE order_data_anj SET status = 1 WHERE orderID = %s", (order_id,))
+        mysql2_rows = cursor.rowcount
+        connection.commit()
         return jsonify({
             "success": True,
-            "mysql_updated": mysql1_rows,       # 对应原order_id表更新行数
-            "sqlite_updated": mysql2_rows      # 兼容原字段名，实际是order_data_anj表更新行数
+            "mysql_updated": mysql1_rows,
+            "sqlite_updated": mysql2_rows,
         })
-
     except Exception as e:
-        print(f"❌ 更新 orderID 出错: {e}")
+        if connection:
+            connection.rollback()
+        print(f"❌ 更新订单状态失败并已回滚: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()
         
 @app.route('/orderid_find', methods=['GET'])
 def orderid_find():
@@ -1467,7 +1492,7 @@ def orderid_find():
 
     try:
         # 3. 数据库连接
-        connection_mysql = pymysql.connect(**db_config)
+        connection_mysql = get_db_connection()
         # 指定游标为元组格式
         cursor_mysql = connection_mysql.cursor(pymysql.cursors.Cursor)
         
@@ -1509,6 +1534,7 @@ def orderid_find():
     
 
 @app.route('/update_order_data', methods=['POST'])
+@require_local_token
 def update_order_data():
     # ====================== 排查日志：第一步：打印所有接收的参数 ======================
     '''
@@ -1543,7 +1569,7 @@ def update_order_data():
     cursor = None
 
     try:
-        conn = pymysql.connect(**db_config)
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         if orderIDtype == "手动充值":
@@ -1607,6 +1633,7 @@ def update_order_data():
     return f"up_result={up_result}"  
 
 @app.route('/code_upload_batch', methods=['POST'])
+@require_local_token
 def code_upload_batch():
     # 仅保留：收到请求
     print("📥 /code_upload_batch 收到请求")
@@ -1641,7 +1668,7 @@ def code_upload_batch():
     conn = None
     cursor = None
     try:
-        conn = pymysql.connect(**db_config)
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         cursor.executemany(
@@ -1670,12 +1697,13 @@ def code_upload_batch():
 
 # 取券码接口：/code_fetch（POST 或 GET 都支持）
 @app.route('/code_fetch', methods=['GET', 'POST'])
+@require_local_token
 def code_fetch():
     conn = None
     cursor = None
 
     try:
-        conn = pymysql.connect(**db_config)
+        conn = get_db_connection()
         cursor = conn.cursor(pymysql.cursors.Cursor)
 
         conn.begin()
@@ -1733,4 +1761,4 @@ if __name__ == "__main__":
     threading.Thread(target=check_and_upload_images, daemon=True).start()
     threading.Thread(target=schedule_job, daemon=True).start()
     print("Flask 静态目录设置为：", app.static_folder)
-    app.run(debug=False, use_reloader=False,host="0.0.0.0", port=5000)
+    app.run(debug=False, use_reloader=False, host=os.getenv("FLASK_HOST", "127.0.0.1"), port=env_int("FLASK_PORT", 5000))
