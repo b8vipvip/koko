@@ -23,8 +23,34 @@ import cv2
 import numpy as np
 import re
 import socket
+import sys
 # 计算 img.py 文件的所在目录，并加载同目录/当前目录中的 .env。
 base_dir = os.path.dirname(os.path.abspath(__file__))
+
+# 统一运行日志：模块内所有 print 同时输出到控制台和 img_runtime.log。
+runtime_log_path = os.path.join(base_dir, "img_runtime.log")
+_runtime_log_lock = threading.Lock()
+_console_print = print
+
+
+def print(*args, **kwargs):
+    """将控制台 print 内容同步写入 img_runtime.log，不改变原有控制台行为。"""
+    _console_print(*args, **kwargs)
+
+    output_file = kwargs.get("file")
+    if output_file not in (None, sys.stdout, sys.stderr):
+        return
+
+    sep = kwargs.get("sep", " ")
+    end = kwargs.get("end", "\n")
+    message = sep.join(str(arg) for arg in args) + end
+    try:
+        with _runtime_log_lock:
+            with open(runtime_log_path, "a", encoding="utf-8") as log_file:
+                log_file.write(message)
+                log_file.flush()
+    except Exception as log_exc:
+        _console_print(f"写运行日志失败: {log_exc}", file=sys.stderr)
 load_dotenv(os.path.join(base_dir, '.env'))
 load_dotenv()
 
@@ -69,7 +95,6 @@ MYSQL_TUNNEL_REMOTE_PORT = env_int("MYSQL_TUNNEL_REMOTE_PORT", 3306)
 
 ADB_PATH = os.getenv("ADB_PATH", r"C:\leidian\LDPlayer9\adb.exe")
 ADB_REVERSE_PORT = env_int("ADB_REVERSE_PORT", 5000)
-ADB_REVERSE_INTERVAL = env_int("ADB_REVERSE_INTERVAL", 10)
 
 startup_log_path = os.path.join(LOG_DIR, "startup_tools.log")
 
@@ -154,71 +179,81 @@ def mysql_ssh_tunnel_loop():
             time.sleep(10)
 
 
-def adb_reverse_once():
-    """
-    启动 img.py 时只给当前在线模拟器执行一次：
-    adb -s emulator-xxxx reverse tcp:5000 tcp:5000
-    """
+def adb_reverse_with_retry(max_attempts=2, delay_seconds=10):
+    """启动时查找在线模拟器，并在首次未发现设备时重试一次 ADB reverse。"""
     if not AUTO_ADB_REVERSE:
         startup_log("[adb-reverse] disabled")
         return
 
-    try:
-        if not os.path.exists(ADB_PATH):
-            startup_log(f"[adb-reverse] adb not found: {ADB_PATH}")
-            return
+    if not os.path.exists(ADB_PATH):
+        startup_log(f"[adb-reverse] adb not found: {ADB_PATH}")
+        return
 
-        result = subprocess.run(
-            [ADB_PATH, "devices"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="ignore",
-            timeout=10,
-        )
-
-        devices = []
-        for line in result.stdout.splitlines():
-            line = line.strip()
-            if line.endswith("\tdevice"):
-                devices.append(line.split()[0])
-
-        if not devices:
-            startup_log("[adb-reverse] no emulator devices found")
-            return
-
-        for device in devices:
-            r = subprocess.run(
-                [
-                    ADB_PATH,
-                    "-s", device,
-                    "reverse",
-                    f"tcp:{ADB_REVERSE_PORT}",
-                    f"tcp:{ADB_REVERSE_PORT}",
-                ],
+    for attempt in range(1, max_attempts + 1):
+        try:
+            result = subprocess.run(
+                [ADB_PATH, "devices"],
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
                 errors="ignore",
                 timeout=10,
             )
+            devices = [
+                line.split()[0]
+                for line in result.stdout.splitlines()
+                if line.strip().endswith("\tdevice")
+            ]
+        except Exception as exc:
+            startup_log(f"[adb-reverse] adb devices 执行异常: {exc}")
+            devices = []
 
-            if r.returncode == 0:
-                startup_log(f"[adb-reverse] ok: {device} tcp:{ADB_REVERSE_PORT}")
+        if devices:
+            success_count = 0
+            for device in devices:
+                try:
+                    reverse_result = subprocess.run(
+                        [
+                            ADB_PATH,
+                            "-s", device,
+                            "reverse",
+                            f"tcp:{ADB_REVERSE_PORT}",
+                            f"tcp:{ADB_REVERSE_PORT}",
+                        ],
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        errors="ignore",
+                        timeout=10,
+                    )
+                    if reverse_result.returncode == 0:
+                        success_count += 1
+                        startup_log(f"[adb-reverse] ok: {device} tcp:{ADB_REVERSE_PORT}")
+                    else:
+                        startup_log(f"[adb-reverse] failed: {device} {reverse_result.stderr.strip()}")
+                except Exception as exc:
+                    startup_log(f"[adb-reverse] failed: {device} {exc}")
+
+            if success_count > 0:
+                startup_log(f"ADB reverse 成功数量：{success_count}")
             else:
-                startup_log(f"[adb-reverse] failed: {device} {r.stderr.strip()}")
+                startup_log("ADB reverse 最终失败：在线设备均执行失败")
+            return
 
-    except Exception as e:
-        startup_log(f"[adb-reverse] error: {e}")
+        if attempt < max_attempts:
+            startup_log(f"未发现模拟器，{delay_seconds}秒后重试")
+            time.sleep(delay_seconds)
+        else:
+            startup_log("ADB reverse 最终失败：未发现模拟器")
 
 
 def start_startup_tools():
     threading.Thread(target=mysql_ssh_tunnel_loop, daemon=True).start()
 
-    # ADB reverse 只在启动时执行一次
-    adb_reverse_once()
+    # ADB reverse 首次未发现设备时仅重试一次。
+    adb_reverse_with_retry()
 
-    startup_log("[startup-tools] mysql tunnel thread started, adb reverse ran once")
+    startup_log("[startup-tools] mysql tunnel thread started, adb reverse completed")
     
     
 # ----------------- MySQL 数据库配置 -----------------
@@ -703,6 +738,40 @@ def schedule_job():
     while True:
         schedule.run_pending()
         time.sleep(30)
+
+# ----------------- 运行心跳与统一接口日志 -----------------
+def heartbeat_loop():
+    """每 60 秒输出一次进程存活提示。"""
+    while True:
+        time.sleep(60)
+        print("✅ img.py 正常运行中，正在等待按键精灵/模拟器请求...")
+
+
+@app.before_request
+def log_request_started():
+    request._img_started_at = time.perf_counter()
+    print(
+        f"📥 请求进入: {request.method} {request.path} "
+        f"remote={request.remote_addr} args={request.args.to_dict(flat=False)}"
+    )
+
+
+@app.after_request
+def log_request_finished(response):
+    started_at = getattr(request, "_img_started_at", time.perf_counter())
+    cost_ms = (time.perf_counter() - started_at) * 1000
+    print(
+        f"📤 请求完成: {request.method} {request.path} "
+        f"status={response.status_code} cost={cost_ms:.2f}ms"
+    )
+    return response
+
+
+@app.teardown_request
+def log_request_exception(exc):
+    if exc is not None:
+        print(f"❌ 接口异常: {request.method} {request.path} exception={exc}")
+
 
 # ----------------- 生成随机订单号 -----------------
 @app.route('/')
@@ -1819,6 +1888,7 @@ def plain_text_response(body, status=200):
 @app.route('/getTelData', methods=['GET'])
 @require_local_token
 def get_tel_data():
+    print("📥 /getTelData 收到取任务请求")
     conn = None
     cursor = None
     try:
@@ -1838,6 +1908,7 @@ def get_tel_data():
         row = cursor.fetchone()
         if not row:
             conn.rollback()
+            print("📭 /getTelData 当前无可领取任务")
             return plain_text_response('')
 
         cursor.execute("""
@@ -1846,14 +1917,16 @@ def get_tel_data():
         """, (row[10],))
         if cursor.rowcount != 1:
             conn.rollback()
+            print("📭 /getTelData 当前无可领取任务")
             return plain_text_response('')
 
         conn.commit()
+        print(f"✅ /getTelData 领取任务成功 id={row[10]}")
         return plain_text_response(','.join('' if value is None else str(value) for value in row))
     except Exception as exc:
         if conn:
             conn.rollback()
-        print(f"❌ getTelData 异常：{exc}")
+        print(f"❌ /getTelData 异常：{exc}")
         return plain_text_response(f'error: {exc}', 500)
     finally:
         if cursor:
@@ -1865,9 +1938,12 @@ def get_tel_data():
 @app.route('/update_run_status', methods=['POST'])
 @require_local_token
 def update_run_status():
-    dev = request.get_data(as_text=True).strip()
-    if not dev:
+    raw_dev = request.get_data(as_text=True)
+    if not raw_dev.strip():
         return plain_text_response('error', 400)
+
+    dev_match = re.search(r"\d+", raw_dev)
+    dev = int(dev_match.group()) if dev_match else 0
 
     conn = None
     cursor = None
@@ -1884,7 +1960,7 @@ def update_run_status():
                 VALUES (%s, 'online', NOW(), NULL)
                 ON DUPLICATE KEY UPDATE
                     status='online', last_heartbeat_at=NOW(), current_task_id=NULL
-            """, (dev[:64],))
+            """, (raw_dev[:64],))
         except Exception as worker_exc:
             print(f"⚠️ workers 心跳同步失败，已忽略：{worker_exc}")
         conn.commit()
@@ -1893,7 +1969,7 @@ def update_run_status():
         if conn:
             conn.rollback()
         print(f"❌ update_run_status 异常：{exc}")
-        return plain_text_response(f'error: {exc}', 500)
+        return plain_text_response('error', 500)
     finally:
         if cursor:
             cursor.close()
@@ -2151,6 +2227,7 @@ def code_fetch():
 # 启动 Flask 应用与后台任务并行运行
 if __name__ == "__main__":
     start_startup_tools()
+    threading.Thread(target=heartbeat_loop, daemon=True).start()
 
     # 给 SSH 隧道和 ADB reverse 一点启动时间
     time.sleep(3)
