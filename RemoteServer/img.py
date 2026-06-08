@@ -22,6 +22,7 @@ from openai import OpenAI
 import cv2
 import numpy as np
 import re
+import socket
 # 计算 img.py 文件的所在目录，并加载同目录/当前目录中的 .env。
 base_dir = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(base_dir, '.env'))
@@ -52,7 +53,174 @@ def env_int(name, default):
 LOG_DIR = os.getenv("LOG_DIR", r"D:\leidian\auto-tool\img\test")
 LOG_PATH = os.path.join(LOG_DIR, "slider.txt")
 LOCAL_API_TOKEN = os.getenv("LOCAL_API_TOKEN", "")
+# ----------------- 启动辅助：MySQL SSH 隧道 + ADB reverse -----------------
+AUTO_MYSQL_TUNNEL = os.getenv("AUTO_MYSQL_TUNNEL", "0") == "1"
+AUTO_ADB_REVERSE = os.getenv("AUTO_ADB_REVERSE", "0") == "1"
 
+SSH_PATH = os.getenv("SSH_PATH", r"C:\Windows\System32\OpenSSH\ssh.exe")
+SSH_KEY = os.getenv(
+    "SSH_KEY",
+    os.path.join(os.path.expanduser("~"), ".ssh", "koko_mysql_tunnel_ed25519")
+)
+SSH_USER_HOST = os.getenv("SSH_USER_HOST", "ubuntu@106.53.164.35")
+MYSQL_TUNNEL_LOCAL_PORT = env_int("MYSQL_TUNNEL_LOCAL_PORT", 13306)
+MYSQL_TUNNEL_REMOTE_HOST = os.getenv("MYSQL_TUNNEL_REMOTE_HOST", "127.0.0.1")
+MYSQL_TUNNEL_REMOTE_PORT = env_int("MYSQL_TUNNEL_REMOTE_PORT", 3306)
+
+ADB_PATH = os.getenv("ADB_PATH", r"C:\leidian\LDPlayer9\adb.exe")
+ADB_REVERSE_PORT = env_int("ADB_REVERSE_PORT", 5000)
+ADB_REVERSE_INTERVAL = env_int("ADB_REVERSE_INTERVAL", 10)
+
+startup_log_path = os.path.join(LOG_DIR, "startup_tools.log")
+
+
+def startup_log(msg):
+    try:
+        os.makedirs(LOG_DIR, exist_ok=True)
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        line = f"{now} {msg}"
+        print(line)
+        with open(startup_log_path, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except Exception as e:
+        print(f"写启动日志失败: {e}")
+
+
+def is_local_port_open(port, host="127.0.0.1", timeout=1):
+    try:
+        with socket.create_connection((host, int(port)), timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+
+def mysql_ssh_tunnel_loop():
+    """
+    自动保持 MySQL SSH 隧道：
+    本地 127.0.0.1:13306 -> 服务器 127.0.0.1:3306
+    """
+    if not AUTO_MYSQL_TUNNEL:
+        startup_log("[mysql-tunnel] disabled")
+        return
+
+    create_no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    proc = None
+
+    while True:
+        try:
+            if is_local_port_open(MYSQL_TUNNEL_LOCAL_PORT):
+                # 端口已经在监听，说明隧道存在；不重复启动
+                time.sleep(10)
+                continue
+
+            if not os.path.exists(SSH_PATH):
+                startup_log(f"[mysql-tunnel] ssh not found: {SSH_PATH}")
+                time.sleep(10)
+                continue
+
+            if not os.path.exists(SSH_KEY):
+                startup_log(f"[mysql-tunnel] ssh key not found: {SSH_KEY}")
+                time.sleep(10)
+                continue
+
+            if proc and proc.poll() is None:
+                time.sleep(5)
+                continue
+
+            cmd = [
+                SSH_PATH,
+                "-i", SSH_KEY,
+                "-N",
+                "-o", "BatchMode=yes",
+                "-o", "ServerAliveInterval=30",
+                "-o", "ServerAliveCountMax=3",
+                "-o", "ExitOnForwardFailure=yes",
+                "-L", f"127.0.0.1:{MYSQL_TUNNEL_LOCAL_PORT}:{MYSQL_TUNNEL_REMOTE_HOST}:{MYSQL_TUNNEL_REMOTE_PORT}",
+                SSH_USER_HOST,
+            ]
+
+            startup_log("[mysql-tunnel] starting ssh tunnel...")
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=create_no_window,
+            )
+
+            time.sleep(5)
+
+        except Exception as e:
+            startup_log(f"[mysql-tunnel] error: {e}")
+            time.sleep(10)
+
+
+def adb_reverse_once():
+    """
+    启动 img.py 时只给当前在线模拟器执行一次：
+    adb -s emulator-xxxx reverse tcp:5000 tcp:5000
+    """
+    if not AUTO_ADB_REVERSE:
+        startup_log("[adb-reverse] disabled")
+        return
+
+    try:
+        if not os.path.exists(ADB_PATH):
+            startup_log(f"[adb-reverse] adb not found: {ADB_PATH}")
+            return
+
+        result = subprocess.run(
+            [ADB_PATH, "devices"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="ignore",
+            timeout=10,
+        )
+
+        devices = []
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if line.endswith("\tdevice"):
+                devices.append(line.split()[0])
+
+        if not devices:
+            startup_log("[adb-reverse] no emulator devices found")
+            return
+
+        for device in devices:
+            r = subprocess.run(
+                [
+                    ADB_PATH,
+                    "-s", device,
+                    "reverse",
+                    f"tcp:{ADB_REVERSE_PORT}",
+                    f"tcp:{ADB_REVERSE_PORT}",
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="ignore",
+                timeout=10,
+            )
+
+            if r.returncode == 0:
+                startup_log(f"[adb-reverse] ok: {device} tcp:{ADB_REVERSE_PORT}")
+            else:
+                startup_log(f"[adb-reverse] failed: {device} {r.stderr.strip()}")
+
+    except Exception as e:
+        startup_log(f"[adb-reverse] error: {e}")
+
+
+def start_startup_tools():
+    threading.Thread(target=mysql_ssh_tunnel_loop, daemon=True).start()
+
+    # ADB reverse 只在启动时执行一次
+    adb_reverse_once()
+
+    startup_log("[startup-tools] mysql tunnel thread started, adb reverse ran once")
+    
+    
 # ----------------- MySQL 数据库配置 -----------------
 db_config = {
     'host': os.getenv('DB_HOST', '127.0.0.1'),
@@ -76,19 +244,24 @@ def get_db_connection(**overrides):
 
 
 def require_local_token(view_func):
-    """保护本地任务器接口；未配置 token 时只接受 127.0.0.1。"""
+    """本机 127.0.0.1 直接允许；局域网/模拟器访问必须带 LOCAL_API_TOKEN。"""
     @functools.wraps(view_func)
     def wrapped(*args, **kwargs):
-        if LOCAL_API_TOKEN:
-            supplied = request.headers.get('X-Local-Token', '') or request.args.get('token', '')
-            allowed = hmac.compare_digest(supplied, LOCAL_API_TOKEN)
-        else:
-            allowed = request.remote_addr == '127.0.0.1'
-        if not allowed:
-            return "Unauthorized", 401
-        return view_func(*args, **kwargs)
-    return wrapped
+        remote_addr = request.remote_addr or ""
 
+        # Windows 本机浏览器访问 http://127.0.0.1:5000/ 时直接允许
+        if remote_addr in ("127.0.0.1", "::1"):
+            return view_func(*args, **kwargs)
+
+        # 非本机访问必须配置并携带 token
+        if LOCAL_API_TOKEN:
+            supplied = request.headers.get("X-Local-Token", "") or request.args.get("token", "")
+            if hmac.compare_digest(supplied, LOCAL_API_TOKEN):
+                return view_func(*args, **kwargs)
+
+        return "Unauthorized", 401
+
+    return wrapped
 
 def mask_value(value, keep=4):
     """日志仅展示手机号、订单号等标识的尾号。"""
@@ -1758,7 +1931,18 @@ def code_fetch():
   
 # 启动 Flask 应用与后台任务并行运行
 if __name__ == "__main__":
+    start_startup_tools()
+
+    # 给 SSH 隧道和 ADB reverse 一点启动时间
+    time.sleep(3)
+
     threading.Thread(target=check_and_upload_images, daemon=True).start()
     threading.Thread(target=schedule_job, daemon=True).start()
+
     print("Flask 静态目录设置为：", app.static_folder)
-    app.run(debug=False, use_reloader=False, host=os.getenv("FLASK_HOST", "127.0.0.1"), port=env_int("FLASK_PORT", 5000))
+    app.run(
+        debug=False,
+        use_reloader=False,
+        host=os.getenv("FLASK_HOST", "127.0.0.1"),
+        port=env_int("FLASK_PORT", 5000)
+    )
