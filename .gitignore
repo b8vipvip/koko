@@ -11,3 +11,26 @@ php.log
 last_mail_time.txt
 *.upload.tmp
 *.sql.*.tmp
+
+# ===== Koko local secrets =====
+server/.env
+*.env
+# ===== Python runtime =====
+*.pyc
+venv/
+# ===== Logs / runtime data =====
+server/logs/
+server/temp_userdata/
+# ===== Backup files =====
+*.bak
+*.bak.*
+*.backup
+*.old
+*.tmp
+# ===== Server generated nginx secret include files =====
+koko_backend_admin_headers.inc
+koko_php_admin_fastcgi.inc
+# ===== OS/editor =====
+.DS_Store
+.idea/
+.vscode/

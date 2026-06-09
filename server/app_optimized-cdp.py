@@ -873,7 +873,7 @@ def submit():
         # 锁定成功 -> 插入 user_data 作为一次提交的记录
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO user_data (phone, code, order_id, redeem_code, status, create_date)
+                INSERT INTO user_data (phone, code, order_id, yzm, status, create_date)
                 VALUES (%s, %s, %s, %s, 1, NOW())
             """, (phone, code, order_id, order_id))
             record_id = cur.lastrowid
@@ -1025,7 +1025,7 @@ def admin_submit():
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO user_data (phone, code, order_id, redeem_code, status, create_date, admin_override)
+                INSERT INTO user_data (phone, code, order_id, yzm, status, create_date, admin_override)
                 VALUES (%s, %s, %s, %s, 1, NOW(), 1)
             """, (phone, code, order_id, order_id))
             record_id = cur.lastrowid
@@ -1090,7 +1090,7 @@ def send_verify_code():
         init = sanitize(data.get('init', '0'))
         yzm_status = sanitize(data.get('yzm_status', '1'))
 
-        logger.info(f"[验证码接口] 参数已校验 phone_tail={token[-4:] if token else ''}, redeem_code_tail={orderID[-6:] if orderID else ''}, zhanghu={zhanghu}, yzm_status={yzm_status}")
+        logger.info(f"[验证码接口] 参数已校验 phone_tail={token[-4:] if token else ''}, yzm_tail={orderID[-6:] if orderID else ''}, zhanghu={zhanghu}, yzm_status={yzm_status}")
 
         # 插入 tel_data
         connection = pymysql.connect(**db_config)
@@ -1104,10 +1104,9 @@ def send_verify_code():
               qdzhb, applogin, weblog, init, yzm_status))
         '''
         cursor.execute("""
-            INSERT INTO tel_data (tel, yzm, orderid, redeem_code, zhanghu, huiyuanguize, lingqu3, shougong,
-                                  qdzhb, applogin, weblog, init, yzm_status, create_date)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """, (token, UrlsID, orderID, orderID, zhanghu, huiyuanguize, lingqu3, shougong,
+            INSERT INTO tel_data (tel, yzm, orderid, zhanghu, huiyuanguize, lingqu3, shougong, qdzhb, applogin, weblog, init, yzm_status, create_date)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (token, UrlsID, orderID, zhanghu, huiyuanguize, lingqu3, shougong,
               qdzhb, applogin, weblog, init, yzm_status, now))
         connection.commit()
         cursor.close()
@@ -1117,7 +1116,7 @@ def send_verify_code():
         return jsonify({'code': 200, 'msg': '验证码已发送'})
 
     except Exception as e:
-        logger.error(f"[验证码接口] 处理失败: {e}")
+        logging.exception("[验证码接口] 处理失败")
         return jsonify({'code': 500, 'msg': '服务器错误'})
 
 
