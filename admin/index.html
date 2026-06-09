@@ -18,6 +18,30 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, initial-scale=1.0, user-scalable=no">
   <link rel="stylesheet" href="list.css">
   <!--新增自适应 -->
+
+<style id="koko-manual-status-style">
+  #sd-czcg-btn,
+  #sd-czsb-btn {
+    display: inline-block;
+    margin-left: 6px;
+    margin-right: 0;
+    white-space: nowrap;
+  }
+  .koko-manual-status-row {
+    display: flex !important;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+</style>
+
+
+<style id="koko-return-page-style">
+  #returnPage {
+    margin-left: 10px;
+  }
+</style>
+
 </head>
 
 <style>
@@ -558,10 +582,10 @@
           </table>
 
           <div class="pagination">
-            <a href="#" onclick="goHome()">首页</a>
+            <a href="#" onclick="return goHome()">首页</a>
             <a href="#" id="prevPage" onclick="changePage(-1)">上一页</a>
             <span id="pageInfo">第 1 页</span>
-            <a href="#" id="nextPage" onclick="changePage(1)">下一页</a>
+            <a href="#" id="nextPage" onclick="changePage(1)">下一页</a> <a href="#" id="returnPage" onclick="return returnFromDetails()">返回</a>
           </div>
 
           <div id="details-container" style="display: none;">
@@ -569,10 +593,10 @@
             <p id="details-info" class="details-info"></p>
 
             <div class="horizontal-container">
-              <a id="details-img1-link" target="_blank">充值前截图</a>
-              <a id="details-img2-link" target="_blank">充值后截图</a>
+              <a id="details-img1-link" target="_blank">充值前</a>
+              <a id="details-img2-link" target="_blank">充值后</a>
               <button id="copy-message-btn" type="button">复制消息</button>
-              <button id="sd-czcg-btn" type="button">手动成功</button>
+              <button id="sd-czcg-btn" type="button">已成功</button><button id="sd-czsb-btn" type="button">已失败</button>
             </div>
           </div>
         </div>
@@ -1177,6 +1201,178 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
   </script>
+
+<script id="koko-manual-status-js">
+(function () {
+  function setManualStatusId(id) {
+    if (!id || Number(id) <= 0) return;
+
+    window.currentDetailId = id;
+    window.currentRecordId = id;
+    window.currentTelDataId = id;
+    window.selectedRecordId = id;
+    window.selectedId = id;
+
+    $('#sd-czcg-btn,#sd-czsb-btn')
+      .attr('data-id', id)
+      .data('id', id);
+
+    var $parent = $('#sd-czcg-btn').parent();
+    if ($parent.length) {
+      $parent.addClass('koko-manual-status-row');
+    }
+  }
+
+  window.kokoSetManualStatusId = setManualStatusId;
+
+  function getManualStatusId() {
+    var candidates = [
+      $('#sd-czsb-btn').attr('data-id'),
+      $('#sd-czsb-btn').data('id'),
+      $('#sd-czcg-btn').attr('data-id'),
+      $('#sd-czcg-btn').data('id'),
+      window.currentDetailId,
+      window.currentRecordId,
+      window.currentTelDataId,
+      window.selectedRecordId,
+      window.selectedId
+    ];
+
+    for (var i = 0; i < candidates.length; i++) {
+      var v = candidates[i];
+      if (v !== undefined && v !== null && String(v).trim() !== '' && Number(v) > 0) {
+        return String(v).trim();
+      }
+    }
+
+    var domId =
+      $('[data-current-id]').last().attr('data-current-id') ||
+      $('input[name="id"]').last().val() ||
+      $('input[name="tel_data_id"]').last().val() ||
+      $('#id').val() ||
+      $('#tel_data_id').val();
+
+    if (domId && Number(domId) > 0) {
+      return String(domId).trim();
+    }
+
+    return '';
+  }
+
+  $(document)
+    .off('click.kokoManualFailure', '#sd-czsb-btn')
+    .on('click.kokoManualFailure', '#sd-czsb-btn', function () {
+      var id = getManualStatusId();
+
+      if (!id) {
+        layer.msg('未找到当前记录ID，无法标记失败', {icon: 2});
+        return;
+      }
+
+      layer.confirm('确认将该订单标记为已失败？', {icon: 3, title: '确认操作'}, function (index) {
+        layer.close(index);
+
+        $.ajax({
+          url: '/api.php?action=setManualFailure',
+          type: 'POST',
+          dataType: 'json',
+          data: {id: id},
+          success: function (res) {
+            if (res && res.success) {
+              layer.msg('已失败', {icon: 1});
+
+              if (typeof showDetails === 'function') {
+                showDetails(id);
+              }
+
+              if (typeof loadData === 'function') {
+                loadData();
+              }
+
+              if (typeof fetchData === 'function') {
+                fetchData();
+              }
+            } else {
+              layer.msg((res && (res.message || res.error)) || '操作失败', {icon: 2});
+            }
+          },
+          error: function (xhr) {
+            layer.msg('操作失败：' + (xhr.responseText || xhr.status), {icon: 2});
+          }
+        });
+      });
+    });
+
+  $(function () {
+    setInterval(function () {
+      var id = getManualStatusId();
+      if (id) {
+        setManualStatusId(id);
+      }
+    }, 500);
+  });
+})();
+</script>
+
+<script id="koko-details-back-js">
+(function () {
+  function showListAndHideDetails() {
+    var dataTable = document.getElementById('data-table');
+    var details = document.getElementById('details-container');
+
+    if (details) {
+      details.style.display = 'none';
+    }
+
+    if (dataTable) {
+      dataTable.style.display = '';
+    }
+
+    var table = dataTable ? dataTable.closest('table') : document.querySelector('table.table');
+    if (table) {
+      table.style.display = '';
+    }
+
+    var pagination = document.querySelector('.pagination');
+    if (pagination) {
+      pagination.style.display = '';
+    }
+
+    return false;
+  }
+
+  window.kokoCloseDetailsContainer = showListAndHideDetails;
+  window.returnFromDetails = showListAndHideDetails;
+
+  function patchGoHome() {
+    if (window.__kokoGoHomeNoSearchPatch) return;
+    if (typeof window.goHome !== 'function') return;
+
+    var oldGoHome = window.goHome;
+    window.goHome = function () {
+      showListAndHideDetails();
+      return oldGoHome.apply(this, arguments);
+    };
+
+    window.__kokoGoHomeNoSearchPatch = true;
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', patchGoHome);
+  } else {
+    patchGoHome();
+  }
+
+  var n = 0;
+  var timer = setInterval(function () {
+    patchGoHome();
+    n++;
+    if (n > 20 || window.__kokoGoHomeNoSearchPatch) {
+      clearInterval(timer);
+    }
+  }, 300);
+})();
+</script>
 
 </body>
 </html>

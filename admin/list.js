@@ -276,6 +276,27 @@ function loadRecords() {
 
 
 function showDetails(id) {
+  // KOKO_CURRENT_DETAIL_ID
+  try {
+    window.currentDetailId = id;
+    window.currentRecordId = id;
+    window.currentTelDataId = id;
+    window.selectedRecordId = id;
+    window.selectedId = id;
+
+    setTimeout(function () {
+      $('#sd-czcg-btn,#sd-czsb-btn')
+        .attr('data-id', id)
+        .data('id', id);
+
+      if (window.kokoSetManualStatusId) {
+        window.kokoSetManualStatusId(id);
+      }
+    }, 0);
+  } catch (e) {
+    console.warn('set manual status current id failed', e);
+  }
+
     console.log(`Fetching details for ID: ${id}`); // 打印正在获取详情的 ID
 
     fetch(adminApi(`/api.php?action=getDetails&id=${id}`))
