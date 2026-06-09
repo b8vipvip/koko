@@ -1,4 +1,109 @@
 <?php
+
+// >>> KOKO_MANUAL_STATUS_OVERRIDE
+// 手动标记充值结果：已成功 / 已失败
+if (
+    isset($_GET['action'])
+    && in_array($_GET['action'], ['setManualSuccess', 'setManualFailure'], true)
+    && ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST'
+) {
+    header('Content-Type: application/json; charset=utf-8');
+
+    if (!function_exists('koko_manual_status_load_env')) {
+        function koko_manual_status_load_env($path) {
+            $env = [];
+            if (!is_readable($path)) {
+                return $env;
+            }
+            foreach (file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
+                $line = trim($line);
+                if ($line === '' || str_starts_with($line, '#') || !str_contains($line, '=')) {
+                    continue;
+                }
+                [$k, $v] = explode('=', $line, 2);
+                $env[trim($k)] = trim(trim($v), "\"'");
+            }
+            return $env;
+        }
+    }
+
+    $env = koko_manual_status_load_env('/opt/koko/.env');
+    $expectedToken = $env['ADMIN_API_TOKEN'] ?? '';
+    $headerToken = $_SERVER['HTTP_X_ADMIN_TOKEN'] ?? '';
+    $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+
+    if ($expectedToken !== '') {
+        $okToken = hash_equals($expectedToken, $headerToken)
+            || hash_equals('Bearer ' . $expectedToken, $authHeader);
+        if (!$okToken) {
+            http_response_code(401);
+            echo json_encode(['success' => false, 'message' => 'Unauthorized'], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+    }
+
+    $raw = file_get_contents('php://input');
+    $json = json_decode($raw ?: '{}', true);
+    if (!is_array($json)) {
+        $json = [];
+    }
+
+    $id = (int)($_POST['id'] ?? $json['id'] ?? 0);
+    if ($id <= 0) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => '缺少有效ID'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $rStatus = $_GET['action'] === 'setManualFailure' ? '失败' : '已成功';
+
+    try {
+        require_once __DIR__ . '/lib/config.php';
+
+        if (function_exists('koko_db_config')) {
+            $cfg = koko_db_config();
+            $host = $cfg['host'] ?? '127.0.0.1';
+            $port = (int)($cfg['port'] ?? 3306);
+            $user = $cfg['user'] ?? '';
+            $password = $cfg['password'] ?? '';
+            $dbname = $cfg['name'] ?? ($cfg['database'] ?? '');
+            $charset = $cfg['charset'] ?? 'utf8mb4';
+        } else {
+            $host = $env['DB_HOST'] ?? '127.0.0.1';
+            $port = (int)($env['DB_PORT'] ?? 3306);
+            $user = $env['DB_USER'] ?? '';
+            $password = $env['DB_PASSWORD'] ?? '';
+            $dbname = $env['DB_NAME'] ?? '';
+            $charset = $env['DB_CHARSET'] ?? 'utf8mb4';
+        }
+
+        mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+        $mysqli = new mysqli($host, $user, $password, $dbname, $port);
+        $mysqli->set_charset($charset);
+
+        $stmt = $mysqli->prepare("UPDATE tel_data SET status='2', r_status=? WHERE id=?");
+        $stmt->bind_param('si', $rStatus, $id);
+        $stmt->execute();
+
+        echo json_encode([
+            'success' => true,
+            'message' => $rStatus,
+            'affected_rows' => $stmt->affected_rows
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    } catch (Throwable $e) {
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'message' => '数据库更新失败',
+            'error' => $e->getMessage()
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+}
+// <<< KOKO_MANUAL_STATUS_OVERRIDE
+
+
 require_once __DIR__ . '/lib/config.php';
 require_once __DIR__ . '/lib/mailer.php';
 
