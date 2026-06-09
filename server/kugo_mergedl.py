@@ -516,18 +516,18 @@ class dbClass:
 
             insert_sql = """
                 INSERT INTO tel_data(
-                    tel, yzm, orderID, redeem_code, zhanghu, huiyuanguize, lingqu3,
+                    tel, yzm, orderID, zhanghu, huiyuanguize, lingqu3,
                     shougong, qdzhb, applogin, weblog, init,
                     yzm_status, status, r_status, c_status, create_date
                 )
                 VALUES (
-                    %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s,
                     %s, '1', '等待', '1', NOW()
                 )
             """
             self.cursor.execute(insert_sql, [
-                token, UrlsID, orderID, orderID, zhanghu, huiyuanguize,
+                token, UrlsID, orderID, zhanghu, huiyuanguize,
                 lingqu3, shougong, qdzhb, applogin, weblog, init, yzm_status
             ])
 
@@ -995,7 +995,7 @@ def login():
 
             return jsonify({"code": "200", "msg": "发送成功"})
         except Exception as e:
-            print("❌ fasong 异常：", e)
+            logger.exception("❌ /api fasong 异常")
             return jsonify({"code": "500", "msg": "服务器错误"}), 500
         finally:
             try:
