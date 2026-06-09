@@ -141,6 +141,56 @@ if (!function_exists('koko_mysqli')) {
     }
 }
 
+
+if (!function_exists('koko_default_settings')) {
+    function koko_default_settings() {
+        return [
+            'redeem_url' => 'https://ka.k2n.cn/usrvip/',
+            'notify_device_offline' => '1',
+            'notify_new_recharge_task' => '1',
+            'notify_backend_error' => '1',
+        ];
+    }
+}
+
+if (!function_exists('koko_ensure_system_settings')) {
+    function koko_ensure_system_settings($pdo = null) {
+        static $initialized = false;
+        if ($initialized) {
+            return;
+        }
+
+        $pdo = $pdo ?: koko_pdo();
+        $pdo->exec("CREATE TABLE IF NOT EXISTS system_settings (
+            setting_key VARCHAR(100) NOT NULL PRIMARY KEY,
+            setting_value TEXT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        $stmt = $pdo->prepare('INSERT IGNORE INTO system_settings (setting_key, setting_value) VALUES (?, ?)');
+        foreach (koko_default_settings() as $key => $value) {
+            $stmt->execute([$key, $value]);
+        }
+        $initialized = true;
+    }
+}
+
+if (!function_exists('koko_get_setting')) {
+    function koko_get_setting($key, $default = null) {
+        try {
+            $pdo = koko_pdo();
+            koko_ensure_system_settings($pdo);
+            $stmt = $pdo->prepare('SELECT setting_value FROM system_settings WHERE setting_key = ? LIMIT 1');
+            $stmt->execute([$key]);
+            $value = $stmt->fetchColumn();
+            return $value === false || $value === null ? $default : $value;
+        } catch (Exception $e) {
+            error_log('Unable to read system setting ' . $key . ': ' . $e->getMessage());
+            return $default;
+        }
+    }
+}
+
 if (!function_exists('koko_mail_config')) {
     function koko_mail_config() {
         return [

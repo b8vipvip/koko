@@ -158,7 +158,10 @@ try {
 
   // 邮件节流
   $lastMailTime = readLastMailTime($lastMailTimeFile);
-  $canSend = (!empty($abnormalDevices) && !$inNightTime && ($now - $lastMailTime > 120));
+  $canSend = (koko_get_setting('notify_device_offline', '1') === '1'
+    && !empty($abnormalDevices)
+    && !$inNightTime
+    && ($now - $lastMailTime > 120));
 
   if ($canSend) {
     $ok = sendAbnormalMail($abnormalDevices);
@@ -169,6 +172,7 @@ try {
 
 } catch (Exception $e) {
   error_log("系统异常: " . $e->getMessage());
+  koko_send_backend_error_mail('admin/dev.php', $e->getMessage());
   http_response_code(500);
   echo json_encode(['error' => true, 'message' => '服务器内部错误'], JSON_UNESCAPED_UNICODE);
 }

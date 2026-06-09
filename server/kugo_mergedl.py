@@ -57,6 +57,42 @@ def get_db_connection(dict_cursor: bool = False, autocommit: bool = False):
     return pymysql.connect(**config)
 
 
+def get_system_setting(key, default=None):
+    """Read one system setting from MySQL, returning default when unavailable."""
+    connection = None
+    try:
+        connection = get_db_connection()
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS system_settings (
+                    setting_key VARCHAR(100) NOT NULL PRIMARY KEY,
+                    setting_value TEXT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """)
+            cursor.executemany(
+                "INSERT IGNORE INTO system_settings (setting_key, setting_value) VALUES (%s, %s)",
+                [
+                    ("redeem_url", "https://ka.k2n.cn/usrvip/"),
+                    ("notify_device_offline", "1"),
+                    ("notify_new_recharge_task", "1"),
+                    ("notify_backend_error", "1"),
+                ],
+            )
+            cursor.execute(
+                "SELECT setting_value FROM system_settings WHERE setting_key = %s LIMIT 1",
+                (key,),
+            )
+            row = cursor.fetchone()
+        connection.commit()
+        return row[0] if row and row[0] is not None else default
+    except Exception:
+        logger.exception("Unable to read system setting key=%s", key)
+        return default
+    finally:
+        if connection is not None:
+            connection.close()
+
 def require_admin_token():
     expected = os.getenv("ADMIN_API_TOKEN", ADMIN_API_TOKEN)
     provided = request.headers.get("X-Admin-Token") or ""

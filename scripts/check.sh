@@ -148,7 +148,7 @@ text = schema.read_text()
 required_tables = [
     'api_tokens', 'code_data', 'device_fund_details', 'img_data', 'order_data',
     'order_data_anj', 'order_id', 'recharge_tasks', 'run_status', 'submissions',
-    'task_batches', 'task_logs', 'tel_data', 'user_data', 'workers',
+    'system_settings', 'task_batches', 'task_logs', 'tel_data', 'user_data', 'workers',
 ]
 missing = [t for t in required_tables if not re.search(r'CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+`?' + re.escape(t) + r'`?', text, re.I)]
 assert not missing, f'full schema missing core tables: {missing}'
@@ -226,6 +226,17 @@ if missing:
     raise SystemExit('\n'.join(missing))
 print('admin route protection ok')
 PY
+
+printf '[check] System settings API protection scan\n'
+python - <<'PYSETTINGS'
+from pathlib import Path
+endpoint = Path('admin/phpapi/system_settings.php').read_text()
+config = Path('admin/lib/config.php').read_text()
+assert 'koko_require_admin_token(false)' in endpoint, 'system settings endpoint must require admin token'
+for key in ['redeem_url', 'notify_device_offline', 'notify_new_recharge_task', 'notify_backend_error']:
+    assert key in endpoint or key in config, f'missing system setting: {key}'
+print('system settings API protection and keys ok')
+PYSETTINGS
 
 printf '[check] CORS admin headers scan\n'
 python - <<'PY'
