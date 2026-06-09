@@ -327,13 +327,15 @@ public function checkNewTasks() {
             exit;
         }
 
-        // 发送邮件
-        $this->sendNewTaskEmail($emailBody);
+        $mailEnabled = koko_get_setting('notify_new_recharge_task', '1') === '1';
+        if ($mailEnabled) {
+            $this->sendNewTaskEmail($emailBody);
+        }
 
         header('Content-Type: application/json; charset=utf-8');
         echo json_encode([
             'success' => true,
-            'message' => '新任务已写入 details，并已发送邮件',
+            'message' => $mailEnabled ? '新任务已写入 details，并已发送邮件' : '新任务已写入 details，邮件通知已关闭',
             'count' => count($tasks)
         ], JSON_UNESCAPED_UNICODE);
 

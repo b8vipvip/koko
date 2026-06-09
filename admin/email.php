@@ -5,6 +5,11 @@ koko_require_admin_token(true);
 require_once __DIR__ . '/lib/mailer.php';
 
 try {
+    if (koko_get_setting('notify_backend_error', '1') !== '1') {
+        echo "后端运行报错邮件通知已关闭。";
+        exit;
+    }
+
     $conn = koko_mysqli();
     if ($conn->connect_error) {
         throw new RuntimeException('db_connect_error');
@@ -63,6 +68,7 @@ try {
 } catch (Exception $e) {
     http_response_code(500);
     error_log('email.php failed: ' . $e->getMessage());
+    koko_send_backend_error_mail('admin/email.php', $e->getMessage());
     echo "系统异常";
 }
 ?>

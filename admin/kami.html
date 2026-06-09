@@ -140,8 +140,13 @@ layui.use(['layer'], function(){
   }
 
 // 处理返回的卡密并弹出可复制提示
-function showCopyDialog(orderIDs) {
-  const redeemUrl = window.location.origin + '/usrvip/';
+async function showCopyDialog(orderIDs) {
+  const settingsResponse = await fetch('/phpapi/system_settings.php', { credentials: 'same-origin' });
+  const settingsResult = await settingsResponse.json();
+  if (!settingsResponse.ok || !settingsResult.success || !settingsResult.settings.redeem_url) {
+    throw new Error(settingsResult.message || '无法加载兑换链接配置');
+  }
+  const redeemUrl = settingsResult.settings.redeem_url;
   const lines = orderIDs.map(id => `第一步：手机浏览器打开兑换链接：${redeemUrl}\n第二步：提交兑换，兑换码：${id} `);
   const fullText = `会员兑换流程：\n\n${lines.join('\n')}`;
 
@@ -274,7 +279,7 @@ function showCopyDialog(orderIDs) {
   layer.close(loadingIndex);
   if (data.success) {
     if (data.order_ids && data.order_ids.length > 0) {
-      showCopyDialog(data.order_ids);
+      showCopyDialog(data.order_ids).catch(error => layer.msg(error.message || '无法加载兑换链接配置', {icon: 2}));
     } else {
       layer.alert("没有可用的兑换码，请稍后再试或检查库存。");
     }

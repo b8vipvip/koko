@@ -42,3 +42,21 @@ if (!function_exists('koko_create_mailer')) {
         return $mail;
     }
 }
+
+if (!function_exists('koko_send_backend_error_mail')) {
+    function koko_send_backend_error_mail($context, $message) {
+        if (koko_get_setting('notify_backend_error', '1') !== '1') {
+            return false;
+        }
+
+        try {
+            $mail = koko_create_mailer();
+            $mail->Subject = 'Koko 后端运行报错';
+            $mail->Body = "运行位置：{$context}\n错误信息：{$message}";
+            return $mail->send();
+        } catch (Exception $mailError) {
+            error_log('Backend error notification failed: ' . $mailError->getMessage());
+            return false;
+        }
+    }
+}

@@ -329,4 +329,18 @@ CREATE TABLE IF NOT EXISTS `workers` (
   KEY `idx_workers_current_task` (`current_task_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='执行节点表';
 
+
+CREATE TABLE IF NOT EXISTS `system_settings` (
+  `setting_key` varchar(100) NOT NULL,
+  `setting_value` text DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`setting_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统运行配置';
+
+INSERT IGNORE INTO `system_settings` (`setting_key`, `setting_value`) VALUES
+  ('redeem_url', 'https://ka.k2n.cn/usrvip/'),
+  ('notify_device_offline', '1'),
+  ('notify_new_recharge_task', '1'),
+  ('notify_backend_error', '1');
+
 SET FOREIGN_KEY_CHECKS = 1;
