@@ -1,4 +1,6 @@
 import logging
+import sys
+from logging.handlers import RotatingFileHandler
 import pymysql
 import time
 import json
@@ -23,6 +25,123 @@ import shutil
 import random
 from flask_cors import CORS
 from datetime import datetime, timedelta
+
+
+LOG_DIRECTORY = "/opt/koko/logs"
+LOG_MAX_BYTES = 100 * 1024 * 1024
+LOG_BACKUP_COUNT = 3
+LOG_FORMAT = "%(asctime)s [%(levelname)s] [%(process)d] %(name)s:%(lineno)d - %(message)s"
+LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+
+class TeeStream:
+    """Mirror stdout/stderr to the original stream and a file-only logger."""
+
+    _logging_state = threading.local()
+
+    def __init__(self, original_stream, stream_logger, level, service_name):
+        self.original_stream = original_stream
+        self.stream_logger = stream_logger
+        self.level = level
+        self._koko_service_name = service_name
+        self._buffer = ""
+        self._lock = threading.RLock()
+
+    def write(self, message):
+        if not message:
+            return 0
+
+        # Logging may report handler failures to stderr. The guard ensures such
+        # reports only reach journald instead of recursively entering logging.
+        if getattr(self._logging_state, "writing", False):
+            return self.original_stream.write(message)
+
+        self._logging_state.writing = True
+        try:
+            with self._lock:
+                written = self.original_stream.write(message)
+                self._buffer += message
+                while "\n" in self._buffer:
+                    line, self._buffer = self._buffer.split("\n", 1)
+                    if line.strip():
+                        self.stream_logger.log(self.level, line.rstrip("\r"))
+                return written if written is not None else len(message)
+        finally:
+            self._logging_state.writing = False
+
+    def flush(self):
+        self.original_stream.flush()
+        if self._buffer and not getattr(self._logging_state, "writing", False):
+            self._logging_state.writing = True
+            try:
+                with self._lock:
+                    self.stream_logger.log(self.level, self._buffer.rstrip("\r"))
+                    self._buffer = ""
+            finally:
+                self._logging_state.writing = False
+
+    def isatty(self):
+        return self.original_stream.isatty()
+
+    def fileno(self):
+        return self.original_stream.fileno()
+
+    @property
+    def encoding(self):
+        return getattr(self.original_stream, "encoding", None)
+
+
+def setup_file_logging(service_name, log_file, target_logger):
+    """Add bounded file logging and tee stdout/stderr without breaking startup."""
+    original_stderr = sys.stderr
+    try:
+        os.makedirs(LOG_DIRECTORY, exist_ok=True)
+        absolute_log_file = os.path.abspath(log_file)
+        stream_logger = logging.getLogger(f"{service_name}.stdio")
+        stream_logger.setLevel(logging.INFO)
+        stream_logger.propagate = False
+        candidate_handlers = target_logger.handlers + stream_logger.handlers
+        file_handler = next(
+            (
+                handler
+                for handler in candidate_handlers
+                if isinstance(handler, RotatingFileHandler)
+                and os.path.abspath(handler.baseFilename) == absolute_log_file
+            ),
+            None,
+        )
+        if file_handler is None:
+            file_handler = RotatingFileHandler(
+                absolute_log_file,
+                maxBytes=LOG_MAX_BYTES,
+                backupCount=LOG_BACKUP_COUNT,
+                encoding="utf-8",
+            )
+            file_handler.setLevel(logging.DEBUG)
+            file_handler.setFormatter(logging.Formatter(LOG_FORMAT, datefmt=LOG_DATE_FORMAT))
+        if file_handler not in target_logger.handlers:
+            target_logger.addHandler(file_handler)
+
+        # Keep stdout/stderr records file-only here: TeeStream itself writes the
+        # original stream so systemd/journald still receives each print once.
+        if file_handler not in stream_logger.handlers:
+            stream_logger.addHandler(file_handler)
+
+        if getattr(sys.stdout, "_koko_service_name", None) != service_name:
+            sys.stdout = TeeStream(sys.stdout, stream_logger, logging.INFO, service_name)
+        if getattr(sys.stderr, "_koko_service_name", None) != service_name:
+            sys.stderr = TeeStream(sys.stderr, stream_logger, logging.ERROR, service_name)
+    except Exception as exc:
+        # A logging-path/permission problem must never prevent the service from
+        # starting. Use the untouched console stream for this fallback notice.
+        try:
+            original_stderr.write(
+                f"Unable to initialize file logging for {service_name}: {exc}\n"
+            )
+            original_stderr.flush()
+        except Exception:
+            pass
+
 load_dotenv()
 now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 app = Flask(__name__)
@@ -51,6 +170,7 @@ file_handler.setFormatter(formatter)
 console_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 logger.addHandler(console_handler)
+setup_file_logging("app_optimized_cdp", "/opt/koko/logs/app_optimized-cdp.log", logger)
 # 数据库配置
 db_config = {
     'host': os.getenv('DB_HOST', '127.0.0.1'),
