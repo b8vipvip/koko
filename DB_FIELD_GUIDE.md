@@ -15,6 +15,18 @@ user_data 旧兼容字段：
 
 user_data.code 是历史字段，保留兼容旧数据。新代码不要再直接使用 code，应统一使用 yzm。
 
+## 兑换码字段统一规则
+
+兑换码语义字段统一使用：
+- user_data.order_id
+- tel_data.orderID
+- order_id.orderID 或 order_id.order_id，按现有表结构兼容
+
+注意：
+- redeem_code 和 order_id 不是同一个语义
+- 不要把 redeem_code 当成 order_id 兼容
+- 不要新增 redeem_code 字段
+
 ## 禁止新增的字段名
 
 不要新增或使用：

@@ -35,27 +35,44 @@ class TeeStream:
         self._lock = threading.RLock()
 
     def write(self, message):
-        if not message:
+        # 兼容 click/flask/systemd 可能传入 bytes 的情况
+        if isinstance(message, bytes):
+            message = message.decode('utf-8', errors='replace')
+        elif not isinstance(message, str):
+            message = str(message)
+
+        if message == '':
             return 0
 
-        # Logging may report handler failures to stderr. The guard ensures such
-        # reports only reach journald instead of recursively entering logging.
-        if getattr(self._logging_state, "writing", False):
-            return self.original_stream.write(message)
-
-        self._logging_state.writing = True
+        # 先保留原 stdout/stderr 输出，保证 journalctl 仍能看到
+        written = None
         try:
-            with self._lock:
-                written = self.original_stream.write(message)
-                self._buffer += message
-                while "\n" in self._buffer:
-                    line, self._buffer = self._buffer.split("\n", 1)
-                    if line.strip():
-                        self.stream_logger.log(self.level, line.rstrip("\r"))
-                return written if written is not None else len(message)
-        finally:
-            self._logging_state.writing = False
+            written = self.original_stream.write(message)
+            try:
+                self.original_stream.flush()
+            except Exception:
+                pass
+        except TypeError:
+            try:
+                written = self.original_stream.write(str(message))
+                try:
+                    self.original_stream.flush()
+                except Exception:
+                    pass
+            except Exception:
+                written = len(message)
+        except Exception:
+            written = len(message)
 
+        # 再写入 logger 文件，避免空行刷屏
+        text = message.rstrip()
+        if text:
+            try:
+                self.logger.log(self.level, text)
+            except Exception:
+                pass
+
+        return written if written is not None else len(message)
     def flush(self):
         self.original_stream.flush()
         if self._buffer and not getattr(self._logging_state, "writing", False):
@@ -271,7 +288,7 @@ ANJ_SUCCESS_R_STATUS = {'充值成功', '成功', '已成功', '手动成功'}
 ANJ_FAILED_R_STATUS = {'失败', '无效订单', '重复订单', '验证码失效', '验证错', '超时', '已拦截'}
 ANJ_RUNNING_R_STATUS = {'准备登录', 'webdl', 'appdl', '登录成功', '正在充值', '充值中'}
 ANJ_TASK_FIELDS = [
-    'id', 'tel', 'yzm', 'orderID', 'redeem_code', 'zhanghu', 'userid',
+    'id', 'tel', 'yzm', 'orderID', 'zhanghu', 'userid',
     'huiyuanguize', 'lingqu3', 'shougong', 'qdzhb', 'applogin', 'weblog',
     'init', 'yzm_status', 'create_date', 'r_status', 'c_status', 'status',
     'details', 'pxtype', 'dev'
@@ -308,7 +325,7 @@ def _available_columns(cursor, table_name, candidate_columns):
 
 
 def _anj_task_payload(row):
-    redeem_code = row.get('redeem_code') or row.get('orderID')
+    order_id = row.get('order_id') or row.get('orderID')
     tel = row.get('tel')
     yzm = row.get('yzm')
     create_date = row.get('create_date')
@@ -320,8 +337,8 @@ def _anj_task_payload(row):
         'phone': tel,
         'yzm': yzm,
         'code': yzm,
-        'orderID': row.get('orderID') or redeem_code,
-        'redeem_code': redeem_code,
+        'orderID': row.get('orderID') or order_id,
+        'order_id': order_id,
         'zhanghu': row.get('zhanghu'),
         'userid': row.get('userid'),
         'huiyuanguize': row.get('huiyuanguize'),
@@ -390,11 +407,11 @@ def api_anj_claim():
                 task['dev'] = worker_id[:20]
         conn.commit()
         logger.info(
-            'anj task claimed worker_id=%s task_id=%s phone_tail=%s redeem_tail=%s',
+            'anj task claimed worker_id=%s task_id=%s phone_tail=%s order_tail=%s',
             worker_id,
             task.get('id'),
             _safe_tail(task.get('tel')),
-            _safe_tail(task.get('redeem_code') or task.get('orderID'), keep=6),
+            _safe_tail(task.get('orderID') or task.get('order_id'), keep=6),
         )
         return jsonify({'success': True, 'task': _anj_task_payload(task)}), 200
     except Exception:
@@ -424,7 +441,7 @@ def api_anj_report():
         conn = get_db_connection(dict_cursor=True, autocommit=False)
         conn.begin()
         with conn.cursor() as cursor:
-            cursor.execute('SELECT id, tel, orderID, redeem_code FROM tel_data WHERE id=%s FOR UPDATE', (task_id,))
+            cursor.execute('SELECT id, tel, orderID FROM tel_data WHERE id=%s FOR UPDATE', (task_id,))
             task = cursor.fetchone()
             if not task:
                 conn.rollback()
@@ -451,12 +468,12 @@ def api_anj_report():
                 cursor.execute(f"UPDATE tel_data SET {', '.join(update_parts)} WHERE id=%s", params)
         conn.commit()
         logger.info(
-            'anj report accepted worker_id=%s task_id=%s r_status=%s phone_tail=%s redeem_tail=%s',
+            'anj report accepted worker_id=%s task_id=%s r_status=%s phone_tail=%s order_tail=%s',
             worker_id,
             task_id,
             r_status,
             _safe_tail(task.get('tel')),
-            _safe_tail(task.get('redeem_code') or task.get('orderID'), keep=6),
+            _safe_tail(task.get('orderID') or task.get('order_id'), keep=6),
         )
         return jsonify({'success': True, 'message': 'updated'}), 200
     except Exception:
@@ -525,10 +542,10 @@ def api_anj_task(task_id):
         if not task:
             return jsonify({'success': False, 'message': '任务不存在'}), 404
         logger.info(
-            'anj task queried task_id=%s phone_tail=%s redeem_tail=%s',
+            'anj task queried task_id=%s phone_tail=%s order_tail=%s',
             task_id,
             _safe_tail(task.get('tel')),
-            _safe_tail(task.get('redeem_code') or task.get('orderID'), keep=6),
+            _safe_tail(task.get('orderID') or task.get('order_id'), keep=6),
         )
         return jsonify({'success': True, 'task': _anj_task_payload(task)}), 200
     except Exception:
@@ -537,13 +554,13 @@ def api_anj_task(task_id):
 
 
 def _normalize_task_input(data):
-    redeem_code = data.get("redeem_code") or data.get("order_id") or data.get("orderID")
+    order_id = data.get("order_id") or data.get("order_id") or data.get("orderID")
     phone = data.get("phone") or data.get("tel") or data.get("token")
     code = data.get("code") or data.get("UrlsID") or data.get("yzm")
     account = data.get("account") or data.get("zhanghu")
     plan_type = data.get("plan_type") or data.get("huiyuanguize") or data.get("type")
     return {
-        "redeem_code": str(redeem_code).strip() if redeem_code is not None else "",
+        "order_id": str(order_id).strip() if order_id is not None else "",
         "phone": str(phone).strip() if phone is not None else "",
         "code": str(code).strip() if code is not None else "",
         "account": str(account).strip() if account is not None else "",
@@ -748,7 +765,7 @@ class dbClass:
                 return ""
 
             self.conn.commit()
-            logger.info("legacy anj task claimed task_id=%s phone_tail=%s redeem_tail=%s", row_id, _safe_tail(ret1[0]), _safe_tail(ret1[12], keep=6))
+            logger.info("legacy anj task claimed task_id=%s phone_tail=%s order_tail=%s", row_id, _safe_tail(ret1[0]), _safe_tail(ret1[12], keep=6))
             return ",".join('' if value is None else str(value) for value in ret1)
 
         except Exception:
@@ -1202,20 +1219,20 @@ def login():
             # 插入 tel_data（同事务）
             insert_tel_sql = """
                 INSERT INTO tel_data(
-                    tel, yzm, orderID, redeem_code, zhanghu, huiyuanguize, lingqu3,
+                    tel, yzm, orderID, zhanghu, huiyuanguize, lingqu3,
                     shougong, qdzhb, applogin, weblog, init,
                     yzm_status, status, r_status, c_status, create_date, userid
                 )
                 VALUES(
-                    %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s,
-                    %s, '1', '等待', '1', NOW(), %s
+                    %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s,
+                    '1', '等待', '1', NOW(), %s
                 )
             """
             cursor.execute(insert_tel_sql, (
-                db_phone, db_code, orderID, orderID, zhanghu, huiyuanguize, lingqu3,
-                shougong, qdzhb, applogin, weblog, init,
-                yzm_status, (str(userid) if userid is not None else None)
+                db_phone, db_code, orderID, zhanghu, huiyuanguize, lingqu3,
+                shougong, qdzhb, applogin, weblog, init, yzm_status,
+                (str(userid) if userid is not None else None)
             ))
             tel_data_id = cursor.lastrowid
 
@@ -1263,13 +1280,13 @@ def login():
 def api_task_create():
     """Public user API for usrvip to submit a recharge task without running Selenium on API host."""
     data = _normalize_task_input(_json_payload())
-    redeem_code = data['redeem_code']
+    order_id = data['order_id']
     phone = data['phone']
     code = data['code']
     account = data['account']
     plan_type = data['plan_type']
 
-    if not all([redeem_code, phone, code]):
+    if not all([order_id, phone, code]):
         return jsonify({'success': False, 'message': '缺少兑换码、手机号或验证码'}), 400
 
     conn = None
@@ -1280,11 +1297,11 @@ def api_task_create():
             cursor.execute(
                 """
                 SELECT id FROM user_data
-                WHERE (order_id=%s OR redeem_code=%s) AND phone=%s
+                WHERE order_id=%s AND phone=%s
                 LIMIT 1
                 FOR UPDATE
                 """,
-                (redeem_code, redeem_code, phone),
+                (order_id, phone),
             )
             existing = cursor.fetchone()
             if existing:
@@ -1299,10 +1316,10 @@ def api_task_create():
             cursor.execute(
                 """
                 UPDATE order_id
-                SET status=2, phone=%s, type=COALESCE(NULLIF(%s, ''), type), redeem_code=COALESCE(redeem_code, orderID)
-                WHERE (orderID=%s OR redeem_code=%s) AND status=1
+                SET status=2, phone=%s, type=COALESCE(NULLIF(%s, ''), type), order_id=COALESCE(order_id, orderID)
+                WHERE orderID=%s AND status=1
                 """,
-                (phone, plan_type, redeem_code, redeem_code),
+                (phone, plan_type, order_id),
             )
             if cursor.rowcount != 1:
                 conn.rollback()
@@ -1310,18 +1327,18 @@ def api_task_create():
 
             cursor.execute(
                 """
-                INSERT INTO user_data (phone, code, order_id, redeem_code, status, submitstatus, create_date)
-                VALUES (%s, %s, %s, %s, 1, 1, NOW())
+                INSERT INTO user_data (phone, yzm, order_id, status, submitstatus, create_date)
+                VALUES (%s, %s, %s, 1, 1, NOW())
                 """,
-                (phone, code, redeem_code, redeem_code),
+                (phone, code, order_id),
             )
             record_id = cursor.lastrowid
         conn.commit()
         logger.info(
-            "public task created record_id=%s phone_tail=%s redeem_tail=%s account=%s plan_type=%s",
+            "public task created record_id=%s phone_tail=%s order_tail=%s account=%s plan_type=%s",
             record_id,
             _safe_tail(phone),
-            _safe_tail(redeem_code, keep=6),
+            _safe_tail(order_id, keep=6),
             account,
             plan_type,
         )
@@ -1337,7 +1354,7 @@ def api_task_create():
                 conn.rollback()
             except Exception:
                 pass
-        logger.exception("api_task_create failed phone_tail=%s redeem_tail=%s", _safe_tail(phone), _safe_tail(redeem_code, keep=6))
+        logger.exception("api_task_create failed phone_tail=%s order_tail=%s", _safe_tail(phone), _safe_tail(order_id, keep=6))
         return jsonify({'success': False, 'message': '服务器错误'}), 500
     finally:
         if conn:
@@ -1347,9 +1364,9 @@ def api_task_create():
 @app.get('/api/task/status')
 def api_task_status():
     task_id = request.args.get('task_id') or request.args.get('record_id')
-    redeem_code = request.args.get('redeem_code') or request.args.get('order_id') or request.args.get('orderID')
+    order_id = request.args.get('order_id') or request.args.get('order_id') or request.args.get('orderID')
     phone = request.args.get('phone') or request.args.get('tel')
-    if not any([task_id, redeem_code, phone]):
+    if not any([task_id, order_id, phone]):
         return jsonify({'success': False, 'message': '缺少查询参数'}), 400
 
     try:
@@ -1360,15 +1377,15 @@ def api_task_status():
             if task_id:
                 where.append('id=%s')
                 params.append(task_id)
-            if redeem_code:
-                where.append('(order_id=%s OR redeem_code=%s)')
-                params.extend([redeem_code, redeem_code])
+            if order_id:
+                where.append('order_id=%s')
+                params.append(order_id)
             if phone:
                 where.append('phone=%s')
                 params.append(phone)
             cursor.execute(
                 f"""
-                SELECT id, phone, order_id, redeem_code, status, submitstatus, code_err,
+                SELECT id, phone, order_id, status, submitstatus, code_err,
                        nickname1, pic1, userid1, nickname2, pic2, userid2, nickname3, pic3, userid3,
                        create_date, update_date
                 FROM user_data
@@ -1385,17 +1402,17 @@ def api_task_status():
                 """
                 SELECT id, r_status, c_status, details, userid, url, thumbnail_url, create_date
                 FROM tel_data
-                WHERE (tel=%s OR %s IS NULL) AND (orderID=%s OR redeem_code=%s OR %s IS NULL)
+                WHERE (tel=%s OR %s IS NULL) AND (orderID=%s OR %s IS NULL)
                 ORDER BY id DESC
                 LIMIT 1
                 """,
-                (record.get('phone'), record.get('phone'), record.get('order_id'), record.get('redeem_code'), record.get('order_id')),
+                (record.get('phone'), record.get('phone'), record.get('order_id'), record.get('order_id')),
             )
             tel_record = cursor.fetchone()
         conn.close()
         return jsonify(_public_user_status(record, tel_record))
     except Exception:
-        logger.exception("api_task_status failed task_id=%s phone_tail=%s redeem_tail=%s", task_id, _safe_tail(phone), _safe_tail(redeem_code, keep=6))
+        logger.exception("api_task_status failed task_id=%s phone_tail=%s order_tail=%s", task_id, _safe_tail(phone), _safe_tail(order_id, keep=6))
         return jsonify({'success': False, 'message': '服务器错误'}), 500
 
 
@@ -1411,7 +1428,7 @@ def api_worker_fetch():
         with conn.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT id, phone, code, order_id, redeem_code, status, submitstatus,
+                SELECT id, phone, COALESCE(yzm, code) AS yzm, order_id, status, submitstatus,
                        nickname1, userid1, nickname2, userid2, nickname3, userid3
                 FROM user_data
                 WHERE status=1 AND submitstatus=1
@@ -1441,9 +1458,9 @@ def api_worker_fetch():
                 'task_id': task['id'],
                 'record_id': task['id'],
                 'phone': task['phone'],
-                'code': task['code'],
+                'code': task.get('yzm'),
                 'order_id': task.get('order_id'),
-                'redeem_code': task.get('redeem_code') or task.get('order_id'),
+                'order_id': task.get('order_id') or task.get('order_id'),
                 'accounts': [
                     {'slot': 'zh1', 'userid': task.get('userid1'), 'nickname': task.get('nickname1')},
                     {'slot': 'zh2', 'userid': task.get('userid2'), 'nickname': task.get('nickname2')},
@@ -1490,7 +1507,7 @@ def api_worker_report():
         with conn.cursor() as cursor:
             record = None
             if task_id:
-                cursor.execute("SELECT id, phone, code, order_id, redeem_code FROM user_data WHERE id=%s FOR UPDATE", (task_id,))
+                cursor.execute("SELECT id, phone, yzm, order_id FROM user_data WHERE id=%s FOR UPDATE", (task_id,))
                 record = cursor.fetchone()
                 if not record:
                     conn.rollback()
@@ -1499,10 +1516,10 @@ def api_worker_report():
                     cursor.execute("UPDATE user_data SET status=4, update_date=NOW() WHERE id=%s", (task_id,))
                 elif status == 'success':
                     cursor.execute("UPDATE user_data SET status=2, submitstatus=2, update_date=NOW() WHERE id=%s", (task_id,))
-                    cursor.execute("UPDATE order_id SET status=3 WHERE orderID=%s OR redeem_code=%s", (record.get('order_id'), record.get('redeem_code') or record.get('order_id')))
+                    cursor.execute("UPDATE order_id SET status=3 WHERE orderID=%s", (record.get('order_id'),))
                 else:
                     cursor.execute("UPDATE user_data SET status=5, update_date=NOW() WHERE id=%s", (task_id,))
-                    cursor.execute("UPDATE order_id SET status=1 WHERE status=2 AND (orderID=%s OR redeem_code=%s)", (record.get('order_id'), record.get('redeem_code') or record.get('order_id')))
+                    cursor.execute("UPDATE order_id SET status=1 WHERE status=2 AND orderID=%s", (record.get('order_id'),))
             if tel_data_id:
                 update_parts = []
                 params = []
@@ -1647,7 +1664,7 @@ def update_re_status():
         conn = get_db_connection(dict_cursor=True, autocommit=False)
         conn.begin()
         with conn.cursor() as cursor:
-            cursor.execute('SELECT id, tel, orderID, redeem_code FROM tel_data WHERE id=%s FOR UPDATE', (task_id,))
+            cursor.execute('SELECT id, tel, orderID FROM tel_data WHERE id=%s FOR UPDATE', (task_id,))
             task = cursor.fetchone()
             if not task:
                 conn.rollback()
@@ -1663,7 +1680,7 @@ def update_re_status():
             update_parts = [f'`{field}`=%s' for field in update_values]
             cursor.execute(f"UPDATE tel_data SET {', '.join(update_parts)} WHERE id=%s", list(update_values.values()) + [task_id])
         conn.commit()
-        logger.info("legacy update_re_status task_id=%s r_status=%s phone_tail=%s redeem_tail=%s", task_id, r_status, _safe_tail(task.get('tel')), _safe_tail(task.get('redeem_code') or task.get('orderID'), keep=6))
+        logger.info("legacy update_re_status task_id=%s r_status=%s phone_tail=%s order_tail=%s", task_id, r_status, _safe_tail(task.get('tel')), _safe_tail(task.get('orderID') or task.get('order_id'), keep=6))
         return "ok", 200, {"Content-Type": "text/plain; charset=utf-8"}
     except Exception as exc:
         if conn:
@@ -1906,7 +1923,7 @@ def check_recharge_duplicate():
             # ✅ 查 tel_data（注意字段名可能是 order_id，不是 orderID）
             cursor.execute("""
                 SELECT create_date FROM tel_data
-                WHERE tel=%s AND yzm=%s AND order_id=%s
+                WHERE tel=%s AND yzm=%s AND orderID=%s
                 ORDER BY create_date DESC LIMIT 1
             """, (phone, code, order_id))
         else:
@@ -2369,7 +2386,7 @@ def extract_order_ids():
             return jsonify({"code": 206, "msg": f"最大库存为 {len(results)}"}), 200
 
         row_ids = [r[0] for r in results]
-        redeem_codes = [r[1] for r in results]
+        order_ids = [r[1] for r in results]
         placeholders = ','.join(['%s'] * len(row_ids))
         cursor.execute(f"""
             UPDATE order_id SET getstatus = 2
@@ -2382,7 +2399,7 @@ def extract_order_ids():
             return jsonify({"code": 409, "msg": "库存状态变化，请重试"}), 409
 
         conn.commit()
-        return jsonify({"code": 200, "data": redeem_codes})
+        return jsonify({"code": 200, "data": order_ids})
     except Exception:
         if conn:
             conn.rollback()

@@ -48,27 +48,44 @@ class TeeStream:
         self._lock = threading.RLock()
 
     def write(self, message):
-        if not message:
+        # 兼容 click/flask/systemd 可能传入 bytes 的情况
+        if isinstance(message, bytes):
+            message = message.decode('utf-8', errors='replace')
+        elif not isinstance(message, str):
+            message = str(message)
+
+        if message == '':
             return 0
 
-        # Logging may report handler failures to stderr. The guard ensures such
-        # reports only reach journald instead of recursively entering logging.
-        if getattr(self._logging_state, "writing", False):
-            return self.original_stream.write(message)
-
-        self._logging_state.writing = True
+        # 先保留原 stdout/stderr 输出，保证 journalctl 仍能看到
+        written = None
         try:
-            with self._lock:
-                written = self.original_stream.write(message)
-                self._buffer += message
-                while "\n" in self._buffer:
-                    line, self._buffer = self._buffer.split("\n", 1)
-                    if line.strip():
-                        self.stream_logger.log(self.level, line.rstrip("\r"))
-                return written if written is not None else len(message)
-        finally:
-            self._logging_state.writing = False
+            written = self.original_stream.write(message)
+            try:
+                self.original_stream.flush()
+            except Exception:
+                pass
+        except TypeError:
+            try:
+                written = self.original_stream.write(str(message))
+                try:
+                    self.original_stream.flush()
+                except Exception:
+                    pass
+            except Exception:
+                written = len(message)
+        except Exception:
+            written = len(message)
 
+        # 再写入 logger 文件，避免空行刷屏
+        text = message.rstrip()
+        if text:
+            try:
+                self.logger.log(self.level, text)
+            except Exception:
+                pass
+
+        return written if written is not None else len(message)
     def flush(self):
         self.original_stream.flush()
         if self._buffer and not getattr(self._logging_state, "writing", False):

@@ -444,6 +444,11 @@ function checkOrderValidityBeforeSend(orderID) {
   }).catch(function() {
     layer.msg("兑换码校验失败，请稍后重试");
     return false;
+  })
+  .catch(err => {
+    layer.closeAll();
+    console.error('[submitUserInfo] error', err);
+    layer.alert(err.message || "提交失败，请重试", { icon: 2 });
   });
 }
 
@@ -651,7 +656,14 @@ function submitUserInfo() {
     headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': idem },
     body: JSON.stringify({ phone, code, order_id: orderID })
   })
-  .then(r => r.json())
+  .then(async r => {
+    const res = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      console.error('[submitUserInfo] submit failed', r.status, res);
+      throw new Error(res.message || res.msg || ('提交失败，HTTP ' + r.status));
+    }
+    return res;
+  })
   .then(res => {
     layer.close(loadingIndex);
 
