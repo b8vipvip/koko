@@ -205,6 +205,7 @@ protected = [
     '/unlock_order',
     '/extract_order_ids',
     '/extract_order',
+    '/admin/agent/list',
     '/mark_order_used',
     '/submit_order',
     '/uporderid_status',
