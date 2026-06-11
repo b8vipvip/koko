@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>添加与查询卡密</title>
+<link rel="stylesheet" href="/static/layui-v2.11.2/layui/css/layui.css">
+<script src="/static/jquery.min.js"></script>
+<!-- 引入本地 layer.js -->
+<script src="/static/layui-v2.11.2/layui/layui.js"></script>
+  <style>
+    /* 保持原有样式 */
+    body {
+      font-family: "Helvetica Neue", Arial, sans-serif;
+      background-color: #f5f5f5;
+      padding: 20px;
+      min-height: 100vh;
+      margin: 0;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+    }
+    .container {
+      background-color: #fff;
+      padding: 2rem;
+      border-radius: 10px;
+      box-shadow: 0px 2px 5px rgba(0,0,0,0.1);
+      width: 400px;
+      max-width: 90%;
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    .form-group label {
+      display: block;
+      margin-bottom: 5px;
+    }
+    .form-group input, .form-group select {
+      width: 100%;
+      padding: 8px;
+      margin-top: 5px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+    }
+    .form-inline button {
+      width: 100%;
+      padding: 10px;
+      background-color: #1890ff;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .form-inline button:hover {
+      background-color: #0056b3;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>卡密添加与查询</h2>
+
+    <!-- 选择卡密数量：可输入 + 下拉预设 -->
+	<div class="form-group">
+	  <label for="order_count">卡密数量</label>
+
+	  <input id="order_count"
+			 class="layui-input"
+			 type="number"
+			 inputmode="numeric"
+			 min="1"
+			 max="10000"
+			 step="1"
+			 value="10"
+			 list="order_count_list"
+			 placeholder="可手动输入数量，例如 37">
+
+	  <datalist id="order_count_list">
+		<option value="10"></option>
+		<option value="20"></option>
+		<option value="50"></option>
+		<option value="100"></option>
+		<option value="300"></option>
+	  </datalist>
+	</div>
+
+
+    <!-- 选择规格 -->
+    <div class="form-group">
+      <label for="order_type">选择规格</label>
+      <select id="order_type" class="layui-input">
+        <option value="hh1">h1</option>
+        <option value="hh3">h3</option>
+        <option value="hh12">h12</option>
+        <option value="cj1" selected>c1</option>
+        <option value="cj3">c3</option>
+        <option value="cj12">c12</option>
+		<option value="ct1">tv1</option>
+      </select>
+    </div>
+
+    <!-- 选择价格 -->
+    <div class="form-group">
+      <label for="order_price">选择价格</label>
+      <select id="order_price" class="layui-input">
+        <!-- 动态填充的价格项 -->
+      </select>
+    </div>
+	<!-- 选择仓库 -->
+	<div class="form-group">
+  <label for="warehouse">入仓选项</label>
+  <select id="warehouse" class="layui-input">
+    <option value="91">91卡密仓</option>
+    <option value="admin">管理员仓</option>
+  </select>
+</div>
+    <!-- 提交按钮 -->
+    <div class="form-inline" style="display:flex;gap:10px;">
+  <button id="submit_btn" style="flex:1 1 50%;">提交添加</button>
+  <button id="extract_btn" style="flex:1 1 50%;background-color:#52c41a;">提取卡密</button>
+</div>
+
+
+    <!-- 券码批量管理 -->
+    <hr style="margin:20px 0;">
+    <h3 style="margin:0 0 10px 0;">券码批量管理</h3>
+
+    <div class="form-group">
+      <label for="codes_input">券码（支持换行 / 逗号分隔）</label>
+      <textarea id="codes_input" class="layui-textarea" placeholder="一行一个券码，或用逗号分隔" style="width:100%;min-height:120px;resize:vertical;"></textarea>
+    </div>
+
+    <div class="form-group">
+      <label for="fetch_count">批量提取数量</label>
+      <input id="fetch_count" type="number" class="layui-input" value="10" min="1" max="500">
+    </div>
+
+    <div class="form-inline" style="display:flex;gap:10px;">
+      <button id="upload_codes_btn" style="flex:1 1 50%;background-color:#722ed1;">批量添加券码</button>
+      <button id="fetch_one_code_btn" style="flex:1 1 50%;background-color:#fa8c16;">提取1个券码</button>
+    </div>
+
+    <div class="form-inline" style="margin-top:10px;">
+      <button id="fetch_batch_code_btn" style="width:100%;background-color:#13c2c2;">批量提取并下载</button>
+    </div>
+
+  </div>
+
+<script>
+layui.use(['layer'], function(){
+  const layer = layui.layer;
+
+  // 根据选择的规格更新价格选项
+  document.getElementById('order_type').addEventListener('change', function () {
+    const type = this.value;
+    const priceSelect = document.getElementById('order_price');
+    priceSelect.innerHTML = '';
+
+    const priceMap = {
+      'hh1': [3.8, 5.8, 9.8, 10.8],
+      'hh3': [21.8, 23.8, 27.8],
+      'hh12': [92.8, 115],
+      'cj1': [9.9,11.8, 12.9, 14.9, 18.8],
+      'cj3': [32.8, 52.8],
+      'cj12': [125, 128, 168],
+	  'ct1': [8.8, 9.9, 14.9]
+    };
+
+    const priceOptions = priceMap[type] || [];
+    priceOptions.forEach(price => {
+      const option = document.createElement('option');
+      option.value = price;
+      option.textContent = price;
+      priceSelect.appendChild(option);
+    });
+  });
+
+  // 初始化价格选项
+  document.getElementById('order_type').dispatchEvent(new Event('change'));
+
+  let isSubmitting = false;
+
+  // 下载文本文件
+  function downloadTxtFile(content, filename) {
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
+  // 处理返回的卡密并下载
+  function handleDownloadOrderIDs(orderIDs) {
+    const now = new Date();
+    const timeStr = now.getFullYear() + '-' + 
+                    String(now.getMonth()+1).padStart(2,'0') + '-' + 
+                    String(now.getDate()).padStart(2,'0') + '_' +
+                    String(now.getHours()).padStart(2,'0') + '-' + 
+                    String(now.getMinutes()).padStart(2,'0') + '-' + 
+                    String(now.getSeconds()).padStart(2,'0');
+    const filename = `卡密_${timeStr}.txt`;
+    const content = orderIDs.join('\r\n');
+    downloadTxtFile(content, filename);
+  }
+
+  // 提交添加
+  document.getElementById('submit_btn').addEventListener('click', function () {
+    if (isSubmitting) {
+      layer.msg('请求处理中，请稍候...');
+      return;
+    }
+
+    const count = parseInt(document.getElementById('order_count').value);
+    const type = document.getElementById('order_type').value;
+    const price = parseFloat(document.getElementById('order_price').value);
+    const warehouse = document.getElementById('warehouse').value;
+
+    if (!count || !type || !price) {
+      layer.alert("请填写完整信息！");
+      return;
+    }
+
+    isSubmitting = true;
+    const submitBtn = document.getElementById('submit_btn');
+    submitBtn.disabled = true;
+    submitBtn.textContent = '提交中...';
+
+    const loadingIndex = layer.open({
+      type: 1,
+      shade: 0.3,
+      shadeClose: false,
+      title: false,
+      closeBtn: 0,
+      area: ['260px', '120px'],
+      offset: 'auto',
+      content: `
+        <div style="text-align:center;padding:20px;">
+          <div class="layui-icon layui-icon-loading layui-anim layui-anim-rotate layui-anim-loop" 
+              style="font-size:30px;color:#1890ff;"></div>
+          <div style="margin-top:10px;font-size:14px;color:#333;">请勿关闭，正在添加...</div>
+        </div>
+      `
+    });
+
+    fetch("/submit_order", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        order_count: count,
+        order_type: type,
+        order_price: price,
+        warehouse: warehouse
+      })
+    })
+    .then(res => res.json())
+    .then(data => {
+      layer.close(loadingIndex);
+      if (data.success) {
+        layer.alert(`添加成功<br>规格：${type}<br>价格：${price}<br>数量：${count}`, {
+          yes: () => {
+            layer.closeAll();
+            handleDownloadOrderIDs(data.order_ids);
+          }
+        });
+      } else {
+        layer.alert("添加失败：" + data.error);
+      }
+    })
+    .catch(err => {
+      console.error(err);
+      layer.close(loadingIndex);
+      layer.alert("请求出错：" + err.message);
+    })
+    .finally(() => {
+      isSubmitting = false;
+      submitBtn.disabled = false;
+      submitBtn.textContent = '提交添加';
+    });
+  });
+
+  // 提取卡密
+  document.getElementById('extract_btn').addEventListener('click', function () {
+    if (isSubmitting) {
+      layer.msg('请求处理中，请稍候...');
+      return;
+    }
+
+    const count = parseInt(document.getElementById('order_count').value);
+    const type = document.getElementById('order_type').value;
+    const price = parseFloat(document.getElementById('order_price').value);
+    const warehouse = document.getElementById('warehouse').value;
+
+    if (!count || !type || !price) {
+      layer.alert("请填写完整信息！");
+      return;
+    }
+
+    isSubmitting = true;
+    document.getElementById('extract_btn').disabled = true;
+
+    const loadingIndex = layer.open({
+      type: 1,
+      shade: 0.3,
+      shadeClose: false,
+      title: false,
+      closeBtn: 0,
+      area: ['260px', '120px'],
+      offset: 'auto',
+      content: `
+        <div style="text-align:center;padding:20px;">
+          <div class="layui-icon layui-icon-loading layui-anim layui-anim-rotate layui-anim-loop" 
+              style="font-size:30px;color:#1890ff;"></div>
+          <div style="margin-top:10px;font-size:14px;color:#333;">请勿关闭，正在提取...</div>
+        </div>
+      `
+    });
+
+    fetch("/extract_order", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        order_count: count,
+        order_type: type,
+        order_price: price,
+        warehouse: warehouse
+      })
+    })
+    .then(res => res.json())
+    .then(data => {
+      layer.close(loadingIndex);
+      if (data.success) {
+        layer.alert(`提取成功<br>数量：${data.order_ids.length}`, {
+          yes: () => {
+            layer.closeAll();
+            handleDownloadOrderIDs(data.order_ids);
+          }
+        });
+      } else {
+        layer.alert("提取失败：" + data.error);
+      }
+    })
+    .catch(err => {
+      console.error(err);
+      layer.close(loadingIndex);
+      layer.alert("请求出错：" + err.message);
+    })
+    .finally(() => {
+      isSubmitting = false;
+      document.getElementById('extract_btn').disabled = false;
+    });
+  });
+
+  // =========================
+  // 券码批量添加 / 提取
+  // =========================
+
+  function normalizeCodes(raw) {
+    if (!raw) return [];
+    return raw.replace(/,/g, "\n")
+              .split("\n")
+              .map(s => s.trim())
+              .filter(Boolean);
+  }
+
+  // 批量添加券码：POST form-data: codes
+  document.getElementById('upload_codes_btn').addEventListener('click', function () {
+    if (isSubmitting) {
+      layer.msg('请求处理中，请稍候...');
+      return;
+    }
+
+    const raw = document.getElementById('codes_input').value.trim();
+    const codes = normalizeCodes(raw);
+
+    if (!codes.length) {
+      layer.alert("请输入要上传的券码（换行或逗号分隔）！");
+      return;
+    }
+
+    isSubmitting = true;
+    const btn = document.getElementById('upload_codes_btn');
+    btn.disabled = true;
+    btn.textContent = '上传中...';
+
+    const loadingIndex = layer.open({
+      type: 1,
+      shade: 0.3,
+      shadeClose: false,
+      title: false,
+      closeBtn: 0,
+      area: ['260px', '120px'],
+      offset: 'auto',
+      content: `
+        <div style="text-align:center;padding:20px;">
+          <div class="layui-icon layui-icon-loading layui-anim layui-anim-rotate layui-anim-loop" 
+              style="font-size:30px;color:#722ed1;"></div>
+          <div style="margin-top:10px;font-size:14px;color:#333;">请勿关闭，正在上传券码...</div>
+        </div>
+      `
+    });
+
+    const fd = new FormData();
+    fd.append("codes", codes.join("\n"));
+
+    fetch("/code_upload_batch", {
+      method: "POST",
+      body: fd
+    })
+    .then(res => res.text())
+    .then(text => {
+      layer.close(loadingIndex);
+
+      // 后端返回：up_result=1,count=xx 或 up_result=0/3
+      if (text.startsWith("up_result=1")) {
+        const m = text.match(/count=(\d+)/);
+        const count = m ? m[1] : codes.length;
+        layer.alert(`上传成功<br>数量：${count}`, {
+          yes: () => {
+            layer.closeAll();
+            document.getElementById('codes_input').value = '';
+          }
+        });
+      } else if (text.startsWith("up_result=0")) {
+        layer.alert("上传失败：未解析到有效券码（codes 为空）");
+      } else {
+        layer.alert("上传失败：" + text);
+      }
+    })
+    .catch(err => {
+      console.error(err);
+      layer.close(loadingIndex);
+      layer.alert("请求出错：" + err.message);
+    })
+    .finally(() => {
+      isSubmitting = false;
+      btn.disabled = false;
+      btn.textContent = '批量添加券码';
+    });
+  });
+
+
+// 提取 1 个券码：弹窗不显示券码，只显示“复制”按钮，点击后复制到剪贴板
+document.getElementById('fetch_one_code_btn').addEventListener('click', function () {
+  if (isSubmitting) {
+    layer.msg('请求处理中，请稍候...');
+    return;
+  }
+
+  isSubmitting = true;
+  const btn = document.getElementById('fetch_one_code_btn');
+  btn.disabled = true;
+  btn.textContent = '提取中...';
+
+  fetch("/code_fetch", { method: "GET" })
+    .then(res => res.text())
+    .then(async (code) => {
+      code = (code || "").trim();
+      if (!code || code === "0") {
+        layer.alert("当前没有可用券码");
+        return;
+      }
+
+      // 不显示券码，只给一个“复制”按钮
+      const html = `
+        <div style="text-align:center;padding:10px 6px;">
+          <div style="font-size:14px;color:#333;">提取成功</div>
+          <div style="margin-top:10px;">
+            <button id="copy_code_btn"
+                    class="layui-btn layui-btn-sm"
+                    style="background-color:#1890ff;border:none;">
+              复制
+            </button>
+          </div>
+          <div id="copy_hint" style="margin-top:8px;font-size:12px;color:#52c41a;display:none;">已复制到剪贴板</div>
+        </div>
+      `;
+
+      const idx = layer.open({
+        type: 1,
+        title: false,
+        closeBtn: 1,
+        shade: 0.3,
+        area: ['260px', '160px'],
+        content: html
+      });
+
+      // 等弹窗节点渲染后再绑定按钮事件
+      setTimeout(() => {
+        const copyBtn = document.getElementById('copy_code_btn');
+        const hint = document.getElementById('copy_hint');
+
+        if (!copyBtn) return;
+
+        copyBtn.addEventListener('click', async () => {
+          try {
+            // 优先使用 Clipboard API（https 环境才稳定）
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              await navigator.clipboard.writeText(code);
+            } else {
+              // 兼容：execCommand copy
+              const ta = document.createElement('textarea');
+              ta.value = code;
+              ta.setAttribute('readonly', '');
+              ta.style.position = 'fixed';
+              ta.style.left = '-9999px';
+              document.body.appendChild(ta);
+              ta.select();
+              document.execCommand('copy');
+              document.body.removeChild(ta);
+            }
+
+            if (hint) hint.style.display = 'block';
+            layer.msg('复制成功');
+
+            // 复制后自动关闭弹窗（你想不关闭也可以删掉这行）
+            layer.close(idx);
+          } catch (e) {
+            console.error(e);
+            layer.alert("复制失败：浏览器未授权剪贴板权限（建议使用 HTTPS 或手动复制）");
+          }
+        });
+      }, 0);
+    })
+    .catch(err => {
+      console.error(err);
+      layer.alert("请求出错：" + err.message);
+    })
+    .finally(() => {
+      isSubmitting = false;
+      btn.disabled = false;
+      btn.textContent = '提取1个券码';
+    });
+});
+
+  // 批量提取：循环调用 /code_fetch，直到数量满足或返回 "0"
+  document.getElementById('fetch_batch_code_btn').addEventListener('click', async function () {
+    if (isSubmitting) {
+      layer.msg('请求处理中，请稍候...');
+      return;
+    }
+
+    let target = parseInt(document.getElementById('fetch_count').value, 10);
+    if (!target || target < 1) target = 10;
+    if (target > 1000) target = 1000; // 前端保护，避免无限循环
+
+    isSubmitting = true;
+    const btn = document.getElementById('fetch_batch_code_btn');
+    btn.disabled = true;
+    btn.textContent = '批量提取中...';
+
+    const loadingIndex = layer.open({
+      type: 1,
+      shade: 0.3,
+      shadeClose: false,
+      title: false,
+      closeBtn: 0,
+      area: ['280px', '140px'],
+      offset: 'auto',
+      content: `
+        <div style="text-align:center;padding:18px;">
+          <div class="layui-icon layui-icon-loading layui-anim layui-anim-rotate layui-anim-loop" 
+              style="font-size:30px;color:#13c2c2;"></div>
+          <div style="margin-top:8px;font-size:14px;color:#333;">请勿关闭，正在批量提取...</div>
+          <div id="fetch_progress" style="margin-top:6px;font-size:12px;color:#666;">0 / ${target}</div>
+        </div>
+      `
+    });
+
+    const result = [];
+    try {
+      for (let i = 0; i < target; i++) {
+        const res = await fetch("/code_fetch", { method: "GET" });
+        let code = (await res.text() || "").trim();
+        if (!code || code === "0") break;
+        result.push(code);
+
+        const el = document.getElementById('fetch_progress');
+        if (el) el.textContent = `${result.length} / ${target}`;
+      }
+    } catch (err) {
+      console.error(err);
+      layer.close(loadingIndex);
+      layer.alert("请求出错：" + err.message);
+      return;
+    }
+
+    layer.close(loadingIndex);
+
+    if (!result.length) {
+      layer.alert("没有提取到券码（仓库为空）");
+    } else {
+      layer.alert(`批量提取成功<br>数量：${result.length}`, {
+        yes: () => {
+          layer.closeAll();
+          handleDownloadOrderIDs(result); // 复用下载函数：每行一个
+        }
+      });
+    }
+
+    isSubmitting = false;
+    btn.disabled = false;
+    btn.textContent = '批量提取并下载';
+  });
+
+});
+</script>
+
+
+</body>
