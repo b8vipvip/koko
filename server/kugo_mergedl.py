@@ -645,6 +645,49 @@ def admin_required(func):
     return wrapper
 
 
+def parse_extract_ownership(data):
+    """Validate extraction ownership and return its reusable SQL predicate."""
+    source_type = str(data.get("source_type", "retail") or "retail").strip().lower()
+    agent_code = str(data.get("agent_code") or "").strip()
+
+    if source_type not in {"retail", "agent"}:
+        raise ValueError("兑换码归属参数错误")
+    if source_type == "agent" and not agent_code:
+        raise ValueError("请选择代理")
+
+    if source_type == "agent":
+        return source_type, agent_code, "source_type = %s AND agent_code = %s", ["agent", agent_code]
+
+    return (
+        "retail",
+        "",
+        "(source_type = %s OR source_type IS NULL OR source_type = '') "
+        "AND (agent_id = 0 OR agent_id IS NULL)",
+        ["retail"],
+    )
+
+
+@app.route('/admin/agent/list', methods=['GET'])
+@admin_required
+def admin_agent_list():
+    connection = None
+    try:
+        connection = get_db_connection(dict_cursor=True)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT id, agent_code, agent_name "
+                "FROM agent_account WHERE status = 1 ORDER BY id ASC"
+            )
+            agents = cursor.fetchall()
+        return jsonify({"status": "success", "agents": agents})
+    except Exception:
+        logger.exception("/admin/agent/list failed")
+        return jsonify({"status": "error", "agents": [], "message": "代理列表加载失败"}), 500
+    finally:
+        if connection is not None:
+            connection.close()
+
+
 def _safe_tail(value, keep=4):
     if value is None:
         return ""
@@ -2752,6 +2795,7 @@ def extract_order_ids():
         order_type = (data.get("type") or "").strip()
         price = float(data.get("price"))
         quantity = int(data.get("quantity"))
+        _, _, ownership_sql, ownership_params = parse_extract_ownership(data)
     except (TypeError, ValueError):
         return jsonify({"code": 400, "msg": "参数错误"}), 400
 
@@ -2764,13 +2808,14 @@ def extract_order_ids():
         conn = get_db_connection(autocommit=False)
         cursor = conn.cursor()
         conn.begin()
-        cursor.execute("""
+        cursor.execute(f"""
             SELECT id, orderID FROM order_id
             WHERE type=%s AND xp=%s AND status=1 AND getstatus=1
+              AND {ownership_sql}
             ORDER BY id ASC
             LIMIT %s
             FOR UPDATE
-        """, (order_type, price, quantity))
+        """, [order_type, price, *ownership_params, quantity])
         results = cursor.fetchall()
 
         if not results:
@@ -2786,8 +2831,8 @@ def extract_order_ids():
         placeholders = ','.join(['%s'] * len(row_ids))
         cursor.execute(f"""
             UPDATE order_id SET getstatus = 2
-            WHERE id IN ({placeholders}) AND getstatus = 1
-        """, row_ids)
+            WHERE id IN ({placeholders}) AND getstatus = 1 AND {ownership_sql}
+        """, [*row_ids, *ownership_params])
 
         if cursor.rowcount != len(row_ids):
             conn.rollback()
@@ -2819,6 +2864,7 @@ def extract_order():
         order_type = (data.get('order_type') or '').strip()
         order_price = float(data.get('order_price'))
         warehouse = (data.get('warehouse') or '').strip()
+        _, _, ownership_sql, ownership_params = parse_extract_ownership(data)
 
         if order_count <= 0 or not order_type:
             return jsonify({"success": False, "error": "参数错误"}), 400
@@ -2838,15 +2884,16 @@ def extract_order():
         connection_mysql.begin()
 
         cursor_mysql.execute(
-            """
+            f"""
             SELECT id, orderID FROM order_id
             WHERE status = 1 AND getstatus = 1 AND getadminkami = 1
               AND type = %s AND xp = %s AND `91kami` = %s AND adminkami = %s
+              AND {ownership_sql}
             ORDER BY id ASC
             LIMIT %s
             FOR UPDATE
             """,
-            (order_type, order_price, _91kami, adminkami, order_count)
+            [order_type, order_price, _91kami, adminkami, *ownership_params, order_count]
         )
         rows = cursor_mysql.fetchall()
         extracted_order_ids = [row['orderID'] for row in rows]
@@ -2854,7 +2901,11 @@ def extract_order():
         if extracted_order_ids:
             row_ids = [row['id'] for row in rows]
             placeholders = ','.join(['%s'] * len(row_ids))
-            cursor_mysql.execute(f"UPDATE order_id SET getadminkami = 2 WHERE id IN ({placeholders}) AND getadminkami = 1", row_ids)
+            cursor_mysql.execute(
+                f"""UPDATE order_id SET getadminkami = 2
+                    WHERE id IN ({placeholders}) AND getadminkami = 1 AND {ownership_sql}""",
+                [*row_ids, *ownership_params]
+            )
             if cursor_mysql.rowcount != len(row_ids):
                 connection_mysql.rollback()
                 return jsonify({"success": False, "error": "库存状态变化，请重试"}), 409
@@ -2865,6 +2916,11 @@ def extract_order():
             "message": f"成功提取 {len(extracted_order_ids)} 个订单号",
             "order_ids": extracted_order_ids
         })
+
+    except ValueError as exc:
+        if connection_mysql:
+            connection_mysql.rollback()
+        return jsonify({"success": False, "error": str(exc)}), 400
 
     except Exception:
         if connection_mysql:

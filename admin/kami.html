@@ -84,6 +84,14 @@
         <!-- 动态填充的价格项 -->
       </select>
     </div>
+
+    <!-- 这里只允许选择已启用代理，不提供新增或删除入口 -->
+    <div class="form-group">
+      <label for="extractSourceType">兑换码归属</label>
+      <select id="extractSourceType" class="layui-input">
+        <option value="retail" data-agent-code="" selected>普通用户</option>
+      </select>
+    </div>
 	<!-- 选择仓库 -->
 	
     <!-- 提交按钮 -->
@@ -125,6 +133,34 @@ layui.use(['layer'], function(){
 
   // 初始化价格选项
   document.getElementById('order_type').dispatchEvent(new Event('change'));
+
+  // 页面打开后加载已启用代理；加载失败时保留“普通用户”选项。
+  async function loadActiveAgents() {
+    const sourceSelect = document.getElementById('extractSourceType');
+    try {
+      const response = await fetch('/admin/agent/list', { credentials: 'same-origin' });
+      const result = await response.json();
+      if (!response.ok || result.status !== 'success' || !Array.isArray(result.agents)) {
+        throw new Error(result.message || '代理列表加载失败');
+      }
+
+      result.agents.forEach(agent => {
+        const agentCode = String(agent.agent_code || '').trim();
+        if (!agentCode) return;
+
+        const option = document.createElement('option');
+        option.value = 'agent';
+        option.dataset.agentCode = agentCode;
+        option.textContent = `代理 ${agent.agent_name || agentCode}`;
+        sourceSelect.appendChild(option);
+      });
+    } catch (error) {
+      console.error('代理列表加载失败', error);
+      layer.msg('代理列表加载失败，仍可提取普通用户码', {icon: 2, time: 3000});
+    }
+  }
+
+  loadActiveAgents();
 
   let isSubmitting = false;
 
@@ -238,6 +274,10 @@ async function showCopyDialog(orderIDs) {
     const price = parseFloat(document.getElementById('order_price').value);
     const count = 1;
     const warehouse = 'admin';
+    const sourceSelect = document.getElementById('extractSourceType');
+    const selectedSource = sourceSelect.options[sourceSelect.selectedIndex];
+    const sourceType = selectedSource.value;
+    const agentCode = selectedSource.dataset.agentCode || '';
 
     if (!count || !type || !price) {
       layer.alert("请填写完整信息！");
@@ -271,7 +311,9 @@ async function showCopyDialog(orderIDs) {
         order_count: count,
         order_type: type,
         order_price: price,
-        warehouse: warehouse
+        warehouse: warehouse,
+        source_type: sourceType,
+        agent_code: agentCode
       })
     })
     .then(res => res.json())

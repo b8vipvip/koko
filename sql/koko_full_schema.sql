@@ -88,6 +88,19 @@ CREATE TABLE IF NOT EXISTS `order_data` (
   KEY `idx_order_data_processed_dev` (`processed`,`dev`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='历史充值结果表';
 
+CREATE TABLE IF NOT EXISTS `agent_account` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `agent_code` varchar(30) NOT NULL,
+  `agent_name` varchar(100) NOT NULL,
+  `remark` varchar(255) DEFAULT NULL,
+  `status` tinyint(1) NOT NULL DEFAULT '1',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_agent_account_code` (`agent_code`),
+  KEY `idx_agent_account_status_id` (`status`,`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='兑换码代理账户';
+
 CREATE TABLE IF NOT EXISTS `order_data_anj` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `orderID` varchar(255) NOT NULL COMMENT 'Legacy redeem code field; keep equal to redeem_code',
@@ -104,11 +117,16 @@ CREATE TABLE IF NOT EXISTS `order_data_anj` (
   `dev` varchar(255) DEFAULT NULL,
   `processed` tinyint(1) DEFAULT '0',
   `upmysql_status` int(11) DEFAULT '1',
+  `source_type` varchar(20) DEFAULT NULL COMMENT 'retail or agent',
+  `agent_id` bigint(20) unsigned DEFAULT NULL,
+  `agent_code` varchar(30) DEFAULT NULL,
+  `agent_name` varchar(100) DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `idx_order_data_anj_orderID` (`orderID`),
   KEY `idx_order_data_anj_redeem_status` (`redeem_code`,`status`),
   KEY `idx_order_data_anj_status_time` (`status`,`time`),
-  KEY `idx_order_data_anj_phone` (`phone`)
+  KEY `idx_order_data_anj_phone` (`phone`),
+  KEY `idx_order_data_anj_ownership` (`source_type`,`agent_code`,`agent_id`,`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='生成/导入卡密表';
 
 CREATE TABLE IF NOT EXISTS `order_id` (
@@ -132,13 +150,18 @@ CREATE TABLE IF NOT EXISTS `order_id` (
   `adminkami` tinyint(4) DEFAULT '0' COMMENT '后台卡密上架标记',
   `getadminkami` tinyint(4) DEFAULT '1' COMMENT '是否已提取',
   `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
+  `source_type` varchar(20) DEFAULT NULL COMMENT 'retail or agent',
+  `agent_id` bigint(20) unsigned DEFAULT NULL,
+  `agent_code` varchar(30) DEFAULT NULL,
+  `agent_name` varchar(100) DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `idx_order_id_orderID_status` (`orderID`,`status`),
   KEY `idx_order_id_redeem_status` (`redeem_code`,`status`),
   KEY `idx_order_id_status_created` (`status`,`created_at`),
   KEY `idx_order_id_getstatus_id` (`getstatus`,`id`),
   KEY `idx_order_id_admin_get` (`adminkami`,`getadminkami`,`status`),
-  KEY `idx_order_id_91kami_status` (`91kami`,`status`)
+  KEY `idx_order_id_91kami_status` (`91kami`,`status`),
+  KEY `idx_order_id_ownership` (`source_type`,`agent_code`,`agent_id`,`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='兑换码/订单码主表';
 
 CREATE TABLE IF NOT EXISTS `recharge_tasks` (
