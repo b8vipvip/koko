@@ -946,28 +946,77 @@ def generate_random_order_id(length=8):
     return order_id
 
 
-# 检查订单号是否重复
+# 兑换码字段只兼容以下历史命名，明确不使用 redeem_code 或 yzm。
+ORDER_CODE_COLUMN_CANDIDATES = ('orderID', 'order_id', 'orderid')
+AGENT_CODE_PATTERN = re.compile(r'^[A-Za-z0-9_-]{1,30}$')
+
+
+def table_has_column(cursor, table_name, column_name):
+    """检查当前数据库的表字段是否存在，兼容尚未执行新字段迁移的旧数据库。"""
+    cursor.execute(
+        """
+        SELECT COUNT(*) AS cnt
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = %s
+          AND COLUMN_NAME = %s
+        """,
+        (table_name, column_name)
+    )
+    row = cursor.fetchone()
+    return bool(row and row['cnt'])
+
+
+def get_order_code_column(cursor, table_name):
+    """获取兑换码字段；仅支持约定的三个历史字段名。"""
+    for column_name in ORDER_CODE_COLUMN_CANDIDATES:
+        if table_has_column(cursor, table_name, column_name):
+            return column_name
+    raise RuntimeError(f'{table_name} 缺少兑换码字段（仅兼容 orderID/order_id/orderid）')
+
+
 def check_order_id_duplicate(order_id, cursor_mysql):
-    # 1️⃣ order_id 表
-    cursor_mysql.execute(
-        "SELECT COUNT(*) AS cnt FROM order_id WHERE orderID = %s",
-        (order_id,)
-    )
-    mysql_cnt = cursor_mysql.fetchone()['cnt']
-    if mysql_cnt > 0:
-        return True
-
-    # 2️⃣ order_data_anj 表
-    cursor_mysql.execute(
-        "SELECT COUNT(*) AS cnt FROM order_data_anj WHERE orderID = %s",
-        (order_id,)
-    )
-    anj_cnt = cursor_mysql.fetchone()['cnt']
-    if anj_cnt > 0:
-        return True
-
+    """检查兑换码是否已存在于任一兑换码表。"""
+    for table_name in ('order_id', 'order_data_anj'):
+        code_column = get_order_code_column(cursor_mysql, table_name)
+        cursor_mysql.execute(
+            f"SELECT COUNT(*) AS cnt FROM `{table_name}` WHERE `{code_column}` = %s",
+            (order_id,)
+        )
+        if cursor_mysql.fetchone()['cnt'] > 0:
+            return True
     return False
 
+
+def insert_generated_orders(cursor, table_name, generated_order_ids, order_type,
+                            order_price, ownership, warehouse_values=None):
+    """按表中实际存在的新字段批量写入兑换码及归属信息。"""
+    code_column = get_order_code_column(cursor, table_name)
+    columns = [code_column, 'status', 'type', 'xp', 'processed', 'upmysql_status']
+
+    optional_ownership_columns = [
+        column_name for column_name in ('source_type', 'agent_id', 'agent_code', 'agent_name')
+        if table_has_column(cursor, table_name, column_name)
+    ]
+    columns.extend(optional_ownership_columns)
+
+    if warehouse_values is not None:
+        columns.extend(['91kami', 'adminkami'])
+
+    values = []
+    for order_id in generated_order_ids:
+        row = [order_id, 1, order_type, order_price, 0, 1]
+        row.extend(ownership[column_name] for column_name in optional_ownership_columns)
+        if warehouse_values is not None:
+            row.extend(warehouse_values)
+        values.append(tuple(row))
+
+    quoted_columns = ', '.join(f'`{column_name}`' for column_name in columns)
+    placeholders = ', '.join(['%s'] * len(columns))
+    cursor.executemany(
+        f"INSERT INTO `{table_name}` ({quoted_columns}) VALUES ({placeholders})",
+        values
+    )
 
 
 @app.route('/submit_order', methods=['POST'])
@@ -976,14 +1025,25 @@ def submit_order():
     connection_mysql = None
     cursor_mysql = None
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         print("收到数据：", data)
 
-        # 解析请求参数
+        # 解析请求参数；未传归属字段时完全回退到旧的普通用户流程。
         order_count = int(data.get('order_count', 10))
         order_type = data.get('order_type')
         order_price = float(data.get('order_price', 0.0))
         warehouse = data.get('warehouse', '')
+        source_type = str(data.get('source_type', 'retail')).strip().lower()
+        agent_code = str(data.get('agent_code') or '').strip()
+        agent_name = str(data.get('agent_name') or '').strip() or agent_code
+        is_agent_order = source_type == 'agent' and bool(agent_code)
+
+        # 只有实际按代理方式生成时才校验简称；其他情况按普通用户处理。
+        if is_agent_order and not AGENT_CODE_PATTERN.fullmatch(agent_code):
+            return jsonify({
+                "success": False,
+                "error": "代理英文简称只能包含英文、数字、下划线、中横线，长度为 1 到 30"
+            }), 400
 
         # 参数校验
         if not order_type or order_price <= 0 or order_count <= 0:
@@ -1004,6 +1064,36 @@ def submit_order():
         connection_mysql = get_db_connection()
         cursor_mysql = connection_mysql.cursor()
 
+        ownership = {
+            'source_type': 'retail',
+            'agent_id': 0,
+            'agent_code': '',
+            'agent_name': '',
+        }
+        if is_agent_order:
+            # 自动创建代理账户，再读取其 id 写入兑换码双表。
+            cursor_mysql.execute(
+                """
+                INSERT INTO agent_account(agent_name, agent_code, remark)
+                VALUES (%s, %s, '本地生成兑换码自动创建')
+                ON DUPLICATE KEY UPDATE agent_name=VALUES(agent_name)
+                """,
+                (agent_name, agent_code)
+            )
+            cursor_mysql.execute(
+                "SELECT id FROM agent_account WHERE agent_code = %s LIMIT 1",
+                (agent_code,)
+            )
+            agent_row = cursor_mysql.fetchone()
+            if not agent_row:
+                raise RuntimeError(f'无法获取代理 {agent_code} 的账户 ID')
+            ownership = {
+                'source_type': 'agent',
+                'agent_id': agent_row['id'],
+                'agent_code': agent_code,
+                'agent_name': agent_name,
+            }
+
         generated_order_ids = []
         max_try = order_count * 10  # 最大尝试次数，防止死循环
 
@@ -1011,10 +1101,11 @@ def submit_order():
         while len(generated_order_ids) < order_count and max_try > 0:
             max_try -= 1
 
-            # 生成订单号（保留原有规则：随机码+类型+价格（去点），截断到80位）
+            # 普通用户保留旧规则；代理码在随机码后插入代理简称。
             clean_price = str(order_price).replace('.', '')
-            order_id = (generate_random_order_id() + order_type + str(clean_price))[:80]
-            order_id = order_id.lower()  # 强制小写
+            owner_code_part = agent_code if is_agent_order else ''
+            order_id = (generate_random_order_id() + owner_code_part + order_type + str(clean_price))[:80]
+            order_id = order_id.lower()  # 保留旧系统强制小写兼容逻辑
 
             # 避免本次生成列表内重复 + 检查数据库双表重复
             if order_id in generated_order_ids:
@@ -1031,41 +1122,26 @@ def submit_order():
                 "error": f"生成订单号失败：多次生成重复订单号，请稍后重试（已生成 {len(generated_order_ids)}/{order_count}）"
             }), 500
 
-        # ----------------- 1. 批量插入 MySQL order_id 表（保留原有逻辑） -----------------
-        mysql_order_id_values = [
-            (oid, order_type, order_price, _91kami, adminkami)
-            for oid in generated_order_ids
-        ]
-
-        cursor_mysql.executemany("""
-            INSERT INTO order_id 
-                (orderID, status, type, xp, processed, upmysql_status, `91kami`, adminkami)
-            VALUES 
-                (%s, 1, %s, %s, 0, 1, %s, %s)
-        """, mysql_order_id_values)
-
-        # ----------------- 2. 替换SQLite：批量插入 MySQL order_data_anj 表 -----------------
-        mysql_anj_values = [
-            (oid, order_type, order_price)
-            for oid in generated_order_ids
-        ]
-
-        cursor_mysql.executemany("""
-            INSERT INTO order_data_anj 
-                (orderID, status, type, xp, processed, upmysql_status)
-            VALUES 
-                (%s, 1, %s, %s, 0, 1)
-        """, mysql_anj_values)
+        # 双表按实际存在的归属字段写入，兼容未增加新字段的旧数据库。
+        insert_generated_orders(
+            cursor_mysql, 'order_id', generated_order_ids, order_type, order_price,
+            ownership, warehouse_values=(_91kami, adminkami)
+        )
+        insert_generated_orders(
+            cursor_mysql, 'order_data_anj', generated_order_ids, order_type, order_price,
+            ownership
+        )
 
         # 提交双表插入的事务（要么都成功，要么都失败）
         connection_mysql.commit()
         print(f"✅ 成功生成并写入 {len(generated_order_ids)} 个订单号（order_id + order_data_anj双表）")
 
-        # 返回成功结果
+        # 保留现有返回结构，并新增归属字段方便调用方确认。
         return jsonify({
             "success": True,
             "message": f"成功生成 {len(generated_order_ids)} 个订单号",
-            "order_ids": generated_order_ids
+            "order_ids": generated_order_ids,
+            **ownership,
         })
 
     except Exception as e:
@@ -1086,6 +1162,7 @@ def submit_order():
                 connection_mysql.close()
         except Exception as e:
             print("关闭 MySQL 连接时出错：", e)
+
 
 @app.route('/extract_order', methods=['POST'])
 @require_local_token

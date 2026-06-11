@@ -25,8 +25,8 @@
       padding: 2rem;
       border-radius: 10px;
       box-shadow: 0px 2px 5px rgba(0,0,0,0.1);
-      width: 400px;
-      max-width: 90%;
+      width: 920px;
+      max-width: 95%;
     }
     .form-group {
       margin-bottom: 15px;
@@ -54,12 +54,41 @@
     .form-inline button:hover {
       background-color: #0056b3;
     }
+    /* 生成参数横向排列并适当缩窄，给兑换码归属设置留出空间。 */
+    .generation-settings {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(120px, 1fr));
+      gap: 12px;
+      align-items: end;
+    }
+    .ownership-settings {
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.4fr) auto auto;
+      gap: 10px;
+      align-items: end;
+      margin-bottom: 15px;
+    }
+    .ownership-settings .form-group,
+    .generation-settings .form-group {
+      margin-bottom: 0;
+    }
+    .ownership-settings button {
+      min-width: 64px;
+      padding: 10px 14px;
+    }
+    @media (max-width: 760px) {
+      .generation-settings,
+      .ownership-settings {
+        grid-template-columns: 1fr;
+      }
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <h2>卡密添加与查询</h2>
 
+    <div class="generation-settings">
     <!-- 选择卡密数量：可输入 + 下拉预设 -->
 	<div class="form-group">
 	  <label for="order_count">卡密数量</label>
@@ -114,6 +143,24 @@
     <option value="admin">管理员仓</option>
   </select>
 </div>
+    </div>
+
+    <!-- 兑换码归属：代理简称保存在浏览器本地，可动态添加或删除。 -->
+    <div class="ownership-settings">
+      <div class="form-group">
+        <label for="code_ownership">兑换码归属</label>
+        <select id="code_ownership" class="layui-input">
+          <option value="">普通用户</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="agent_code_input">代理英文简称</label>
+        <input id="agent_code_input" class="layui-input" maxlength="30" placeholder="例如 A、DL、agent001">
+      </div>
+      <div class="form-inline"><button id="add_agent_btn" type="button">添加</button></div>
+      <div class="form-inline"><button id="delete_agent_btn" type="button" style="background-color:#ff4d4f;">删除</button></div>
+    </div>
+
     <!-- 提交按钮 -->
     <div class="form-inline" style="display:flex;gap:10px;">
   <button id="submit_btn" style="flex:1 1 50%;">提交添加</button>
@@ -177,6 +224,81 @@ layui.use(['layer'], function(){
 
   // 初始化价格选项
   document.getElementById('order_type').dispatchEvent(new Event('change'));
+
+  // 代理简称只保存在当前浏览器；普通用户选项始终保留。
+  const AGENT_CODES_STORAGE_KEY = 'redeemCodeAgentCodes';
+  const agentCodePattern = /^[A-Za-z0-9_-]{1,30}$/;
+  const ownershipSelect = document.getElementById('code_ownership');
+  const agentCodeInput = document.getElementById('agent_code_input');
+
+  function loadAgentCodes() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(AGENT_CODES_STORAGE_KEY) || '[]');
+      return Array.isArray(saved) ? saved.filter(code => agentCodePattern.test(code)) : [];
+    } catch (error) {
+      console.warn('读取代理简称失败，将使用空列表：', error);
+      return [];
+    }
+  }
+
+  function saveAgentCodes(codes) {
+    localStorage.setItem(AGENT_CODES_STORAGE_KEY, JSON.stringify(codes));
+  }
+
+  function renderAgentCodes(selectedCode = '') {
+    const codes = loadAgentCodes();
+    ownershipSelect.innerHTML = '<option value="">普通用户</option>';
+    codes.forEach(code => {
+      const option = document.createElement('option');
+      option.value = code;
+      option.textContent = code;
+      ownershipSelect.appendChild(option);
+    });
+    ownershipSelect.value = codes.includes(selectedCode) ? selectedCode : '';
+  }
+
+  document.getElementById('add_agent_btn').addEventListener('click', function () {
+    const agentCode = agentCodeInput.value.trim();
+    if (!agentCodePattern.test(agentCode)) {
+      layer.alert('代理英文简称只能包含英文、数字、下划线、中横线，长度为 1 到 30。');
+      return;
+    }
+    const codes = loadAgentCodes();
+    if (!codes.includes(agentCode)) {
+      codes.push(agentCode);
+      saveAgentCodes(codes);
+    }
+    renderAgentCodes(agentCode);
+    agentCodeInput.value = '';
+    layer.msg('代理简称已添加');
+  });
+
+  document.getElementById('delete_agent_btn').addEventListener('click', function () {
+    const agentCode = agentCodeInput.value.trim();
+    if (!agentCode) {
+      layer.alert('请输入要删除的代理英文简称。');
+      return;
+    }
+    const codes = loadAgentCodes();
+    const updatedCodes = codes.filter(code => code !== agentCode);
+    saveAgentCodes(updatedCodes);
+    renderAgentCodes();
+    agentCodeInput.value = '';
+    layer.msg(codes.length === updatedCodes.length ? '未找到该代理简称' : '代理简称已删除');
+  });
+
+  ownershipSelect.addEventListener('change', function () {
+    agentCodeInput.value = this.value;
+  });
+  renderAgentCodes();
+
+  function getOwnershipPayload() {
+    const agentCode = ownershipSelect.value;
+    if (!agentCode) {
+      return { source_type: 'retail', agent_id: 0, agent_code: '', agent_name: '' };
+    }
+    return { source_type: 'agent', agent_code: agentCode, agent_name: agentCode };
+  }
 
   let isSubmitting = false;
 
@@ -251,7 +373,8 @@ layui.use(['layer'], function(){
         order_count: count,
         order_type: type,
         order_price: price,
-        warehouse: warehouse
+        warehouse: warehouse,
+        ...getOwnershipPayload()
       })
     })
     .then(res => res.json())
