@@ -19,7 +19,7 @@ from selenium import webdriver
 from urllib.parse import urlparse, parse_qs
 from flask import Flask, request, jsonify
 from selenium.webdriver.chrome.service import Service
-from queue import Queue, Empty
+from queue import Queue, Empty, Full
 import atexit
 import shutil
 import random
@@ -761,10 +761,35 @@ class BrowserPool:
             self.ensure_initialized()
 
     def ensure_initialized(self):
-        if self._initialized:
+        """
+        安全初始化浏览器池：
+        1. 如果队列里已经有足够浏览器，直接标记 initialized，避免往满队列 put 后永久阻塞。
+        2. 只补足缺少的浏览器。
+        3. 使用 put_nowait，永不在这里阻塞。
+        """
+        try:
+            current_size = self.pool.qsize()
+        except Exception:
+            current_size = 0
+
+        if self._initialized and current_size > 0:
             return
-        for _ in range(self.size):
-            self.pool.put(self._create_driver())
+
+        if current_size >= self.size:
+            self._initialized = True
+            return
+
+        need = max(0, self.size - current_size)
+        for _ in range(need):
+            try:
+                self.pool.put_nowait(self._create_driver())
+            except Full:
+                logger.warning("[浏览器池] 初始化时队列已满，停止补充")
+                self._initialized = True
+                return
+            except Exception as e:
+                logger.error(f"[浏览器池] 初始化创建浏览器失败: {e}")
+
         self._initialized = True
 
     def rebuild_pool_with_new_config(self):
@@ -869,7 +894,24 @@ class BrowserPool:
 
 
     def release(self, driver):
-        self.pool.put(driver)
+        """
+        安全释放浏览器：
+        队列满时不阻塞，直接关闭多余 driver，避免 release 卡死。
+        """
+        try:
+            self.pool.put_nowait(driver)
+        except Full:
+            logger.warning("[浏览器池] release 时队列已满，关闭多余浏览器实例")
+            try:
+                driver.quit()
+            except Exception:
+                pass
+        except Exception as e:
+            logger.warning(f"[浏览器池] release 失败，尝试关闭浏览器: {e}")
+            try:
+                driver.quit()
+            except Exception:
+                pass
 
     def shutdown_all(self):
         while not self.pool.empty():
@@ -1295,13 +1337,10 @@ def monitor_browser_pool():
 
         logger.info(f"[浏览器池监控] 共检查: {checked}，有效: {alive}，当前池容量: {browser_pool.pool.qsize()}")
 
-        try:
-            while browser_pool.pool.qsize() < browser_pool.size:
-                logger.info("[浏览器池监控] 池容量不足，正在补充浏览器实例")
-                browser_pool.pool.put(browser_pool._create_driver())
-                browser_pool._initialized = True
-        except Exception:
-            logger.exception("[浏览器池监控] 补充浏览器实例失败")
+        # KOKO_BROWSER_POOL_MONITOR_NO_OVERFILL_V1
+        # qsize 只代表空闲浏览器数量，不代表总浏览器数量。
+        # 有请求正在使用浏览器时 qsize < size 是正常情况，不能盲目补充。
+        # 这里已移除 qsize < size 自动补浏览器逻辑，避免 release 时队列已满。
         time.sleep(60)
 
 def cleanup_temp_user_dirs(pool):

@@ -2311,5 +2311,1058 @@ function copyUserID(userid) {
 </script>
 <!-- KOKO_PORTAL_FRONTEND_PATCH_V1_END -->
 
+
+
+<!-- KOKO_RECHARGE_PROGRESS_TIME_FIX_V2_START -->
+
+<script>
+
+(function () {
+
+  if (window.__KOKO_RECHARGE_PROGRESS_TIME_FIX_V2__) return;
+
+  window.__KOKO_RECHARGE_PROGRESS_TIME_FIX_V2__ = true;
+
+
+
+  var DURATION_MS = 6 * 60 * 1000;
+
+
+
+  function nowMs() {
+
+    return Date.now ? Date.now() : new Date().getTime();
+
+  }
+
+
+
+  function cleanValue(v) {
+
+    return String(v || '').trim().toLowerCase();
+
+  }
+
+
+
+  function getPhoneValue() {
+
+    var ids = ['phone', 'tel', 'mobile', 'userPhone', 'inputPhone'];
+
+    for (var i = 0; i < ids.length; i++) {
+
+      var el = document.getElementById(ids[i]);
+
+      if (el && el.value) return String(el.value).trim();
+
+    }
+
+
+
+    var selectors = [
+
+      'input[name="phone"]',
+
+      'input[name="tel"]',
+
+      'input[name="mobile"]'
+
+    ];
+
+
+
+    for (var j = 0; j < selectors.length; j++) {
+
+      var el2 = document.querySelector(selectors[j]);
+
+      if (el2 && el2.value) return String(el2.value).trim();
+
+    }
+
+
+
+    return '';
+
+  }
+
+
+
+  function getOrderValue() {
+
+    var ids = ['order_id', 'orderID', 'orderid', 'yzm', 'redeem_code'];
+
+    for (var i = 0; i < ids.length; i++) {
+
+      var el = document.getElementById(ids[i]);
+
+      if (el && el.value) return String(el.value).trim();
+
+    }
+
+
+
+    var selectors = [
+
+      'input[name="order_id"]',
+
+      'input[name="orderID"]',
+
+      'input[name="orderid"]',
+
+      'input[name="yzm"]'
+
+    ];
+
+
+
+    for (var j = 0; j < selectors.length; j++) {
+
+      var el2 = document.querySelector(selectors[j]);
+
+      if (el2 && el2.value) return String(el2.value).trim();
+
+    }
+
+
+
+    return '';
+
+  }
+
+
+
+  function progressKey(phone, orderID) {
+
+    return 'koko_recharge_submit_ts_v2:' + cleanValue(phone) + ':' + cleanValue(orderID);
+
+  }
+
+
+
+  function rememberSubmitTime(phone, orderID) {
+
+    phone = phone || getPhoneValue();
+
+    orderID = orderID || getOrderValue();
+
+
+
+    if (!phone || !orderID) return;
+
+
+
+    var key = progressKey(phone, orderID);
+
+    var ts = String(nowMs());
+
+
+
+    try {
+
+      localStorage.setItem(key, ts);
+
+      localStorage.setItem('koko_recharge_last_key_v2', key);
+
+      localStorage.setItem('koko_recharge_last_ts_v2', ts);
+
+      console.log('[KOKO_PROGRESS_FIX] saved submit time', key, ts);
+
+    } catch (e) {}
+
+  }
+
+
+
+  function getRememberedSubmitTime(phone, orderID) {
+
+    phone = phone || getPhoneValue();
+
+    orderID = orderID || getOrderValue();
+
+
+
+    try {
+
+      if (phone && orderID) {
+
+        var v = localStorage.getItem(progressKey(phone, orderID));
+
+        if (v && /^\d+$/.test(v)) return parseInt(v, 10);
+
+      }
+
+
+
+      var last = localStorage.getItem('koko_recharge_last_ts_v2');
+
+      if (last && /^\d+$/.test(last)) return parseInt(last, 10);
+
+    } catch (e) {}
+
+
+
+    return 0;
+
+  }
+
+
+
+  function htmlProgress(startTs) {
+
+    var elapsed = Math.max(0, nowMs() - startTs);
+
+    var percent = Math.min(99, Math.floor(elapsed / DURATION_MS * 100));
+
+    var usedMin = Math.floor(elapsed / 60000);
+
+    var leftSec = Math.max(0, Math.ceil((DURATION_MS - elapsed) / 1000));
+
+    var leftMin = Math.floor(leftSec / 60);
+
+    var leftS = leftSec % 60;
+
+
+
+    return ''
+
+      + '<div style="padding:18px 16px 20px;background:#fff;border-radius:14px;">'
+
+      + '  <div style="display:flex;align-items:center;justify-content:space-between;">'
+
+      + '    <div style="font-size:18px;font-weight:700;color:#111;">正在充值</div>'
+
+      + '    <div style="font-size:20px;font-weight:700;color:#1890ff;">' + percent + '%</div>'
+
+      + '  </div>'
+
+      + '  <div style="height:14px;background:#eef3f8;border-radius:20px;margin-top:14px;overflow:hidden;">'
+
+      + '    <div style="height:100%;width:' + percent + '%;background:linear-gradient(90deg,#39a8ff,#52c41a);border-radius:20px;"></div>'
+
+      + '  </div>'
+
+      + '  <div style="display:flex;justify-content:space-between;margin-top:12px;color:#666;font-size:14px;">'
+
+      + '    <span>已提交：' + usedMin + '分钟</span>'
+
+      + '    <span>预计剩余：' + leftMin + '分' + leftS + '秒</span>'
+
+      + '  </div>'
+
+      + '  <div style="margin-top:14px;color:#666;font-size:14px;line-height:1.7;">'
+
+      + '    已提交充值任务，系统正在处理。可以关闭页面，后续点击“查询进度”也能继续查看进度。'
+
+      + '  </div>'
+
+      + '</div>';
+
+  }
+
+
+
+  function showFreshSubmitProgress() {
+
+    var phone = getPhoneValue();
+
+    var orderID = getOrderValue();
+
+    var startTs = getRememberedSubmitTime(phone, orderID);
+
+
+
+    if (!startTs) {
+
+      startTs = nowMs();
+
+      rememberSubmitTime(phone, orderID);
+
+    }
+
+
+
+    if (window.layer && layer.open) {
+
+      layer.open({
+
+        type: 1,
+
+        title: false,
+
+        closeBtn: 1,
+
+        shade: 0.35,
+
+        area: ['92%', 'auto'],
+
+        content: htmlProgress(startTs)
+
+      });
+
+    }
+
+  }
+
+
+
+  window.kokoRememberRechargeSubmitTime = rememberSubmitTime;
+
+  window.kokoShowFreshSubmitProgress = showFreshSubmitProgress;
+
+  window.kokoGetRechargeSubmitTime = getRememberedSubmitTime;
+
+
+
+  function maybeCapturePayload(url, body) {
+
+    url = String(url || '');
+
+
+
+    if (
+
+      url.indexOf('/api') === -1 &&
+
+      url.indexOf('/submit') === -1 &&
+
+      url.indexOf('/submit_order') === -1
+
+    ) {
+
+      return;
+
+    }
+
+
+
+    var phone = getPhoneValue();
+
+    var orderID = getOrderValue();
+
+
+
+    try {
+
+      if (typeof body === 'string' && body) {
+
+        var obj = JSON.parse(body);
+
+        phone = obj.phone || obj.tel || obj.mobile || obj.token || phone;
+
+        orderID = obj.order_id || obj.orderID || obj.orderid || obj.yzm || orderID;
+
+      }
+
+    } catch (e) {}
+
+
+
+    if (phone && orderID) {
+
+      rememberSubmitTime(phone, orderID);
+
+    }
+
+  }
+
+
+
+  // 包装 fetch：充值相关提交成功后，记录当前提交时间
+
+  if (window.fetch && !window.fetch.__kokoProgressFixWrapped) {
+
+    var rawFetch = window.fetch;
+
+    var wrappedFetch = function (input, init) {
+
+      var url = typeof input === 'string' ? input : (input && input.url) || '';
+
+      var body = init && init.body;
+
+
+
+      maybeCapturePayload(url, body);
+
+
+
+      return rawFetch.apply(this, arguments).then(function (res) {
+
+        try {
+
+          if (String(url).indexOf('/api') !== -1 || String(url).indexOf('/submit') !== -1) {
+
+            rememberSubmitTime();
+
+          }
+
+        } catch (e) {}
+
+        return res;
+
+      });
+
+    };
+
+    wrappedFetch.__kokoProgressFixWrapped = true;
+
+    window.fetch = wrappedFetch;
+
+  }
+
+
+
+  // 包装 jQuery ajax
+
+  if (window.jQuery && jQuery.ajax && !jQuery.ajax.__kokoProgressFixWrapped) {
+
+    var rawAjax = jQuery.ajax;
+
+    jQuery.ajax = function (options) {
+
+      try {
+
+        if (options) {
+
+          maybeCapturePayload(options.url || '', options.data || '');
+
+        }
+
+      } catch (e) {}
+
+
+
+      var oldSuccess = options && options.success;
+
+      if (options && typeof oldSuccess === 'function') {
+
+        options.success = function () {
+
+          try {
+
+            rememberSubmitTime();
+
+          } catch (e) {}
+
+          return oldSuccess.apply(this, arguments);
+
+        };
+
+      }
+
+
+
+      return rawAjax.apply(this, arguments);
+
+    };
+
+    jQuery.ajax.__kokoProgressFixWrapped = true;
+
+  }
+
+
+
+  // 包装 layer.open：如果刚提交后弹出了错误的 100% 进度，强制改成当前订单当前时间
+
+  function wrapLayerWhenReady() {
+
+    if (!window.layer || !layer.open || layer.open.__kokoProgressFixWrapped) return false;
+
+
+
+    var rawOpen = layer.open;
+
+    layer.open = function (opts) {
+
+      try {
+
+        if (opts && typeof opts.content === 'string') {
+
+          var c = opts.content;
+
+
+
+          if (
+
+            c.indexOf('正在充值') !== -1 &&
+
+            (
+
+              c.indexOf('已提交：') !== -1 ||
+
+              c.indexOf('预计时间已到') !== -1 ||
+
+              c.indexOf('100%') !== -1
+
+            )
+
+          ) {
+
+            var startTs = getRememberedSubmitTime();
+
+            var age = startTs ? (nowMs() - startTs) : 0;
+
+
+
+            // 只有 15 分钟内的新提交，才强制用当前提交时间修正，避免查询历史进度被误改
+
+            if (startTs && age >= 0 && age < 15 * 60 * 1000) {
+
+              opts.content = htmlProgress(startTs);
+
+              opts.area = opts.area || ['92%', 'auto'];
+
+              opts.type = 1;
+
+              opts.title = false;
+
+            }
+
+          }
+
+        }
+
+      } catch (e) {}
+
+
+
+      return rawOpen.apply(this, arguments);
+
+    };
+
+
+
+    layer.open.__kokoProgressFixWrapped = true;
+
+    return true;
+
+  }
+
+
+
+  if (!wrapLayerWhenReady()) {
+
+    var timer = setInterval(function () {
+
+      if (wrapLayerWhenReady()) clearInterval(timer);
+
+    }, 300);
+
+    setTimeout(function () { clearInterval(timer); }, 10000);
+
+  }
+
+
+
+})();
+
+</script>
+
+<!-- KOKO_RECHARGE_PROGRESS_TIME_FIX_V2_END -->
+
+
+
+<!-- KOKO_RECHARGE_PROGRESS_LIVE_V3_START -->
+<script>
+(function () {
+  if (window.__KOKO_RECHARGE_PROGRESS_LIVE_V3__) return;
+  window.__KOKO_RECHARGE_PROGRESS_LIVE_V3__ = true;
+
+  var DURATION_MS = 6 * 60 * 1000;
+
+  function nowMs() {
+    return Date.now ? Date.now() : new Date().getTime();
+  }
+
+  function getStartTs() {
+    var ts = 0;
+
+    try {
+      if (typeof window.kokoGetRechargeSubmitTime === 'function') {
+        ts = window.kokoGetRechargeSubmitTime() || 0;
+      }
+    } catch (e) {}
+
+    try {
+      if (!ts) {
+        var v = localStorage.getItem('koko_recharge_last_ts_v2');
+        if (v && /^\d+$/.test(v)) ts = parseInt(v, 10);
+      }
+    } catch (e) {}
+
+    var age = nowMs() - ts;
+
+    // 当前弹窗只修“刚提交充值”场景：15分钟内的提交时间才使用
+    if (!ts || age < 0 || age > 15 * 60 * 1000) {
+      ts = nowMs();
+    }
+
+    return ts;
+  }
+
+  function calcProgress(startTs) {
+    var elapsed = Math.max(0, nowMs() - startTs);
+    var done = elapsed >= DURATION_MS;
+    var percent = done ? 100 : Math.min(99, Math.floor(elapsed / DURATION_MS * 100));
+
+    var usedMin = Math.floor(elapsed / 60000);
+
+    var leftSec = Math.max(0, Math.ceil((DURATION_MS - elapsed) / 1000));
+    var leftMin = Math.floor(leftSec / 60);
+    var leftS = leftSec % 60;
+
+    return {
+      percent: percent,
+      usedMin: usedMin,
+      leftMin: leftMin,
+      leftS: leftS,
+      done: done
+    };
+  }
+
+  function liveHtml(uid, startTs) {
+    var p = calcProgress(startTs);
+
+    return ''
+      + '<div id="' + uid + '" data-koko-live-progress="1" style="padding:18px 16px 20px;background:#fff;border-radius:14px;">'
+      + '  <div style="display:flex;align-items:center;justify-content:space-between;">'
+      + '    <div style="font-size:18px;font-weight:700;color:#111;">正在充值</div>'
+      + '    <div id="' + uid + '_percent" style="font-size:20px;font-weight:700;color:#1890ff;">' + p.percent + '%</div>'
+      + '  </div>'
+      + '  <div style="height:14px;background:#eef3f8;border-radius:20px;margin-top:14px;overflow:hidden;">'
+      + '    <div id="' + uid + '_bar" style="height:100%;width:' + p.percent + '%;background:linear-gradient(90deg,#39a8ff,#52c41a);border-radius:20px;transition:width .4s;"></div>'
+      + '  </div>'
+      + '  <div style="display:flex;justify-content:space-between;margin-top:12px;color:#666;font-size:14px;">'
+      + '    <span>已提交 <span id="' + uid + '_used">' + p.usedMin + '</span> 分钟</span>'
+      + '    <span id="' + uid + '_left_text">预计剩余 <span id="' + uid + '_left">' + p.leftMin + '分' + p.leftS + '秒</span></span>'
+      + '  </div>'
+      + '  <div id="' + uid + '_desc" style="margin-top:14px;color:#666;font-size:14px;line-height:1.7;">'
+      + '    已提交充值任务，系统正在处理。可以关闭页面，后续点击“查询进度”也能继续查看进度。'
+      + '  </div>'
+      + '</div>';
+  }
+
+  function updateLiveProgress(uid, startTs) {
+    var root = document.getElementById(uid);
+    if (!root) return false;
+
+    var p = calcProgress(startTs);
+
+    var percentEl = document.getElementById(uid + '_percent');
+    var barEl = document.getElementById(uid + '_bar');
+    var usedEl = document.getElementById(uid + '_used');
+    var leftEl = document.getElementById(uid + '_left');
+    var leftTextEl = document.getElementById(uid + '_left_text');
+    var descEl = document.getElementById(uid + '_desc');
+
+    if (percentEl) percentEl.textContent = p.percent + '%';
+    if (barEl) barEl.style.width = p.percent + '%';
+    if (usedEl) usedEl.textContent = p.usedMin;
+
+    if (leftEl) {
+      leftEl.textContent = p.done ? '预计时间已到' : (p.leftMin + '分' + p.leftS + '秒');
+    }
+
+    if (leftTextEl && p.done) {
+      leftTextEl.textContent = '预计时间已到';
+    }
+
+    if (descEl && p.done) {
+      descEl.innerHTML = '预计到账时间已到，如未到账可联系客服或点击“查询进度”查看最新状态。';
+    }
+
+    return true;
+  }
+
+  function startLiveTimer(uid, startTs) {
+    updateLiveProgress(uid, startTs);
+
+    var timer = setInterval(function () {
+      var ok = updateLiveProgress(uid, startTs);
+      if (!ok) {
+        clearInterval(timer);
+      }
+    }, 1000);
+
+    // 最多跑 10 分钟，避免页面长时间开着占用定时器
+    setTimeout(function () {
+      clearInterval(timer);
+    }, 10 * 60 * 1000);
+  }
+
+  function shouldReplaceProgressContent(content) {
+    content = String(content || '');
+
+    return (
+      content.indexOf('正在充值') !== -1 &&
+      (
+        content.indexOf('已提交') !== -1 ||
+        content.indexOf('预计剩余') !== -1 ||
+        content.indexOf('预计时间已到') !== -1 ||
+        content.indexOf('100%') !== -1 ||
+        content.indexOf('0%') !== -1
+      )
+    );
+  }
+
+  function wrapLayerOpen() {
+    if (!window.layer || !layer.open || layer.open.__kokoRechargeLiveV3Wrapped) {
+      return false;
+    }
+
+    var rawOpen = layer.open;
+
+    layer.open = function (opts) {
+      try {
+        if (opts && typeof opts.content === 'string' && shouldReplaceProgressContent(opts.content)) {
+          var startTs = getStartTs();
+          var uid = 'koko_live_recharge_' + nowMs() + '_' + Math.floor(Math.random() * 100000);
+
+          opts = Object.assign({}, opts);
+          opts.type = 1;
+          opts.title = false;
+          opts.area = opts.area || ['92%', 'auto'];
+          opts.content = liveHtml(uid, startTs);
+
+          var idx = rawOpen.call(this, opts);
+
+          setTimeout(function () {
+            startLiveTimer(uid, startTs);
+          }, 80);
+
+          return idx;
+        }
+      } catch (e) {
+        console.warn('[KOKO_PROGRESS_LIVE_V3] layer.open wrap failed:', e);
+      }
+
+      return rawOpen.apply(this, arguments);
+    };
+
+    layer.open.__kokoRechargeLiveV3Wrapped = true;
+    console.log('[KOKO_PROGRESS_LIVE_V3] installed');
+    return true;
+  }
+
+  if (!wrapLayerOpen()) {
+    var installTimer = setInterval(function () {
+      if (wrapLayerOpen()) clearInterval(installTimer);
+    }, 300);
+
+    setTimeout(function () {
+      clearInterval(installTimer);
+    }, 10000);
+  }
+})();
+</script>
+<!-- KOKO_RECHARGE_PROGRESS_LIVE_V3_END -->
+
+
+<!-- KOKO_RECHARGE_PROGRESS_LIVE_V4_DOM_START -->
+<script>
+(function () {
+  if (window.__KOKO_RECHARGE_PROGRESS_LIVE_V4_DOM__) return;
+  window.__KOKO_RECHARGE_PROGRESS_LIVE_V4_DOM__ = true;
+
+  var DURATION_MS = 6 * 60 * 1000;
+  var timers = {};
+
+  function nowMs() {
+    return Date.now ? Date.now() : new Date().getTime();
+  }
+
+  function getStartTs() {
+    var ts = 0;
+
+    try {
+      if (typeof window.kokoGetRechargeSubmitTime === 'function') {
+        ts = window.kokoGetRechargeSubmitTime() || 0;
+      }
+    } catch (e) {}
+
+    try {
+      if (!ts) {
+        var v = localStorage.getItem('koko_recharge_last_ts_v2');
+        if (v && /^\d+$/.test(v)) ts = parseInt(v, 10);
+      }
+    } catch (e) {}
+
+    var age = nowMs() - ts;
+
+    if (!ts || age < 0 || age > 15 * 60 * 1000) {
+      ts = nowMs();
+      try {
+        localStorage.setItem('koko_recharge_last_ts_v2', String(ts));
+      } catch (e) {}
+    }
+
+    return ts;
+  }
+
+  function calc(startTs) {
+    var elapsed = Math.max(0, nowMs() - startTs);
+    var done = elapsed >= DURATION_MS;
+    var percent = done ? 100 : Math.min(99, Math.floor(elapsed / DURATION_MS * 100));
+    var usedMin = Math.floor(elapsed / 60000);
+    var leftSec = Math.max(0, Math.ceil((DURATION_MS - elapsed) / 1000));
+    return {
+      percent: percent,
+      usedMin: usedMin,
+      leftMin: Math.floor(leftSec / 60),
+      leftS: leftSec % 60,
+      done: done
+    };
+  }
+
+  function liveHtml(uid, startTs) {
+    var p = calc(startTs);
+
+    return ''
+      + '<div id="' + uid + '" data-koko-live-progress="1" data-start-ts="' + startTs + '" style="padding:18px 16px 20px;background:#fff;border-radius:14px;">'
+      + '  <div style="display:flex;align-items:center;justify-content:space-between;">'
+      + '    <div style="font-size:18px;font-weight:700;color:#111;">正在充值</div>'
+      + '    <div id="' + uid + '_percent" style="font-size:20px;font-weight:700;color:#1890ff;">' + p.percent + '%</div>'
+      + '  </div>'
+      + '  <div style="height:14px;background:#eef3f8;border-radius:20px;margin-top:14px;overflow:hidden;">'
+      + '    <div id="' + uid + '_bar" style="height:100%;width:' + p.percent + '%;background:linear-gradient(90deg,#39a8ff,#52c41a);border-radius:20px;transition:width .4s;"></div>'
+      + '  </div>'
+      + '  <div style="display:flex;justify-content:space-between;margin-top:12px;color:#666;font-size:14px;">'
+      + '    <span>已提交：<span id="' + uid + '_used">' + p.usedMin + '</span>分钟</span>'
+      + '    <span id="' + uid + '_left_text">预计剩余：<span id="' + uid + '_left">' + p.leftMin + '分' + p.leftS + '秒</span></span>'
+      + '  </div>'
+      + '  <div id="' + uid + '_desc" style="margin-top:14px;color:#666;font-size:14px;line-height:1.7;">'
+      + '    已提交充值任务，系统正在处理。可以关闭页面，后续点击“查询进度”也能继续查看进度。'
+      + '  </div>'
+      + '</div>';
+  }
+
+  function update(uid, startTs) {
+    var root = document.getElementById(uid);
+    if (!root) {
+      if (timers[uid]) {
+        clearInterval(timers[uid]);
+        delete timers[uid];
+      }
+      return;
+    }
+
+    var p = calc(startTs);
+
+    var percentEl = document.getElementById(uid + '_percent');
+    var barEl = document.getElementById(uid + '_bar');
+    var usedEl = document.getElementById(uid + '_used');
+    var leftEl = document.getElementById(uid + '_left');
+    var leftTextEl = document.getElementById(uid + '_left_text');
+    var descEl = document.getElementById(uid + '_desc');
+
+    if (percentEl) percentEl.textContent = p.percent + '%';
+    if (barEl) barEl.style.width = p.percent + '%';
+    if (usedEl) usedEl.textContent = p.usedMin;
+
+    if (leftEl) {
+      leftEl.textContent = p.done ? '预计时间已到' : (p.leftMin + '分' + p.leftS + '秒');
+    }
+
+    if (leftTextEl && p.done) {
+      leftTextEl.textContent = '预计时间已到';
+    }
+
+    if (descEl && p.done) {
+      descEl.innerHTML = '预计到账时间已到，如未到账可联系客服或点击“查询进度”查看最新状态。';
+    }
+  }
+
+  function startTimer(uid, startTs) {
+    update(uid, startTs);
+
+    if (timers[uid]) clearInterval(timers[uid]);
+
+    timers[uid] = setInterval(function () {
+      update(uid, startTs);
+    }, 1000);
+
+    setTimeout(function () {
+      if (timers[uid]) {
+        clearInterval(timers[uid]);
+        delete timers[uid];
+      }
+    }, 10 * 60 * 1000);
+  }
+
+  function isStaticRechargeBox(el) {
+    if (!el || el.nodeType !== 1) return false;
+    if (el.getAttribute('data-koko-live-progress') === '1') return false;
+    if (el.getAttribute('data-koko-live-converted') === '1') return false;
+
+    var text = el.innerText || '';
+
+    return (
+      text.indexOf('正在充值') !== -1 &&
+      text.indexOf('已提交') !== -1 &&
+      (
+        text.indexOf('预计剩余') !== -1 ||
+        text.indexOf('预计时间已到') !== -1
+      )
+    );
+  }
+
+  function convertOne(el) {
+    if (!isStaticRechargeBox(el)) return false;
+
+    var uid = 'koko_live_recharge_dom_' + nowMs() + '_' + Math.floor(Math.random() * 100000);
+    var startTs = getStartTs();
+
+    el.setAttribute('data-koko-live-converted', '1');
+    el.innerHTML = liveHtml(uid, startTs);
+
+    console.log('[KOKO_PROGRESS_LIVE_V4_DOM] converted static progress to live progress', uid, startTs);
+
+    startTimer(uid, startTs);
+    return true;
+  }
+
+  function scan() {
+    var nodes = document.querySelectorAll('.layui-layer-content, .layui-layer-page, body > div');
+    for (var i = 0; i < nodes.length; i++) {
+      try {
+        convertOne(nodes[i]);
+      } catch (e) {}
+    }
+  }
+
+  var observer = new MutationObserver(function () {
+    scan();
+  });
+
+  observer.observe(document.documentElement || document.body, {
+    childList: true,
+    subtree: true
+  });
+
+  setInterval(scan, 1000);
+
+  setTimeout(scan, 300);
+  setTimeout(scan, 1000);
+  setTimeout(scan, 2000);
+
+  console.log('[KOKO_PROGRESS_LIVE_V4_DOM] installed');
+})();
+</script>
+<!-- KOKO_RECHARGE_PROGRESS_LIVE_V4_DOM_END -->
+
+
+<!-- KOKO_RECHARGE_PROGRESS_WIDTH_V5_START -->
+<style>
+  /* 充值进度弹窗：内容不允许撑破屏幕 */
+  .layui-layer-content [data-koko-live-progress="1"] {
+    box-sizing: border-box !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+  }
+
+  .layui-layer-content [data-koko-live-progress="1"] * {
+    box-sizing: border-box !important;
+  }
+
+  .layui-layer-content [data-koko-live-progress="1"] div {
+    max-width: 100% !important;
+  }
+</style>
+
+<script>
+(function () {
+  if (window.__KOKO_RECHARGE_PROGRESS_WIDTH_V5__) return;
+  window.__KOKO_RECHARGE_PROGRESS_WIDTH_V5__ = true;
+
+  function px(n) {
+    return Math.max(0, Math.floor(n)) + 'px';
+  }
+
+  function fixOneProgressLayer(root) {
+    if (!root) return;
+
+    var layer = root.closest('.layui-layer');
+    var content = root.closest('.layui-layer-content');
+    var container = document.querySelector('.container');
+
+    var vw = Math.max(
+      document.documentElement.clientWidth || 0,
+      window.innerWidth || 0
+    );
+
+    var containerWidth = container ? container.getBoundingClientRect().width : 0;
+
+    /*
+      宽度规则：
+      1. 比 .container 稍微宽一点：container + 20
+      2. 但不能超过屏幕：viewport - 20
+      3. 最小给 280，避免太窄
+    */
+    var targetWidth = Math.min(
+      containerWidth ? containerWidth + 20 : vw - 20,
+      vw - 20
+    );
+
+    targetWidth = Math.max(280, targetWidth);
+
+    if (layer) {
+      layer.style.width = px(targetWidth);
+      layer.style.maxWidth = 'calc(100vw - 20px)';
+      layer.style.left = px((vw - targetWidth) / 2);
+      layer.style.right = 'auto';
+      layer.style.marginLeft = '0';
+      layer.style.boxSizing = 'border-box';
+      layer.style.overflow = 'visible';
+    }
+
+    if (content) {
+      content.style.width = '100%';
+      content.style.maxWidth = '100%';
+      content.style.boxSizing = 'border-box';
+      content.style.overflow = 'hidden';
+    }
+
+    root.style.width = '100%';
+    root.style.maxWidth = '100%';
+    root.style.boxSizing = 'border-box';
+    root.style.overflow = 'hidden';
+  }
+
+  function scanProgressLayers() {
+    var roots = document.querySelectorAll('[data-koko-live-progress="1"]');
+    for (var i = 0; i < roots.length; i++) {
+      fixOneProgressLayer(roots[i]);
+    }
+  }
+
+  var observer = new MutationObserver(function () {
+    scanProgressLayers();
+  });
+
+  observer.observe(document.documentElement || document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['style', 'class']
+  });
+
+  window.addEventListener('resize', function () {
+    setTimeout(scanProgressLayers, 50);
+  });
+
+  window.addEventListener('orientationchange', function () {
+    setTimeout(scanProgressLayers, 300);
+  });
+
+  setInterval(scanProgressLayers, 1000);
+  setTimeout(scanProgressLayers, 300);
+  setTimeout(scanProgressLayers, 1000);
+  setTimeout(scanProgressLayers, 2000);
+
+  console.log('[KOKO_PROGRESS_WIDTH_V5] installed');
+})();
+</script>
+<!-- KOKO_RECHARGE_PROGRESS_WIDTH_V5_END -->
+
 </body>
 </html>
