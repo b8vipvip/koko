@@ -88,13 +88,15 @@ SSH_KEY = os.getenv(
     "SSH_KEY",
     os.path.join(os.path.expanduser("~"), ".ssh", "koko_mysql_tunnel_ed25519")
 )
-SSH_USER_HOST = os.getenv("SSH_USER_HOST", "ubuntu@106.53.164.35")
+SSH_USER_HOST = os.getenv("SSH_USER_HOST", "root@134.175.188.6")
 MYSQL_TUNNEL_LOCAL_PORT = env_int("MYSQL_TUNNEL_LOCAL_PORT", 13306)
 MYSQL_TUNNEL_REMOTE_HOST = os.getenv("MYSQL_TUNNEL_REMOTE_HOST", "127.0.0.1")
 MYSQL_TUNNEL_REMOTE_PORT = env_int("MYSQL_TUNNEL_REMOTE_PORT", 3306)
 
 ADB_PATH = os.getenv("ADB_PATH", r"C:\leidian\LDPlayer9\adb.exe")
 ADB_REVERSE_PORT = env_int("ADB_REVERSE_PORT", 5000)
+ADB_REVERSE_INTERVAL = env_int("ADB_REVERSE_INTERVAL", 10)
+ADB_SERVER_PORT = env_int("ADB_SERVER_PORT", 5037)
 
 startup_log_path = os.path.join(LOG_DIR, "startup_tools.log")
 
@@ -125,7 +127,7 @@ def mysql_ssh_tunnel_loop():
     本地 127.0.0.1:13306 -> 服务器 127.0.0.1:3306
     """
     if not AUTO_MYSQL_TUNNEL:
-        startup_log("[mysql-tunnel] disabled")
+        startup_log("【MySQL隧道】未启用：AUTO_MYSQL_TUNNEL=0")
         return
 
     create_no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -134,21 +136,26 @@ def mysql_ssh_tunnel_loop():
     while True:
         try:
             if is_local_port_open(MYSQL_TUNNEL_LOCAL_PORT):
-                # 端口已经在监听，说明隧道存在；不重复启动
-                time.sleep(10)
+                startup_log(f"【MySQL隧道】连接正常：本机 127.0.0.1:{MYSQL_TUNNEL_LOCAL_PORT} 已监听")
+                time.sleep(60)
                 continue
 
+            if proc and proc.poll() is not None:
+                startup_log(f"【MySQL隧道】连接已断开：ssh退出码={proc.returncode}，准备重连")
+                proc = None
+
             if not os.path.exists(SSH_PATH):
-                startup_log(f"[mysql-tunnel] ssh not found: {SSH_PATH}")
+                startup_log(f"【MySQL隧道】启动失败：找不到 ssh.exe：{SSH_PATH}")
                 time.sleep(10)
                 continue
 
             if not os.path.exists(SSH_KEY):
-                startup_log(f"[mysql-tunnel] ssh key not found: {SSH_KEY}")
+                startup_log(f"【MySQL隧道】启动失败：找不到SSH密钥：{SSH_KEY}")
                 time.sleep(10)
                 continue
 
             if proc and proc.poll() is None:
+                startup_log("【MySQL隧道】ssh进程仍在运行，但本地端口暂未监听，等待确认...")
                 time.sleep(5)
                 continue
 
@@ -157,6 +164,7 @@ def mysql_ssh_tunnel_loop():
                 "-i", SSH_KEY,
                 "-N",
                 "-o", "BatchMode=yes",
+                "-o", "StrictHostKeyChecking=accept-new",
                 "-o", "ServerAliveInterval=30",
                 "-o", "ServerAliveCountMax=3",
                 "-o", "ExitOnForwardFailure=yes",
@@ -164,7 +172,11 @@ def mysql_ssh_tunnel_loop():
                 SSH_USER_HOST,
             ]
 
-            startup_log("[mysql-tunnel] starting ssh tunnel...")
+            startup_log(
+                f"【MySQL隧道】正在启动：本机127.0.0.1:{MYSQL_TUNNEL_LOCAL_PORT} "
+                f"-> {SSH_USER_HOST}:{MYSQL_TUNNEL_REMOTE_HOST}:{MYSQL_TUNNEL_REMOTE_PORT}"
+            )
+
             proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.DEVNULL,
@@ -172,21 +184,31 @@ def mysql_ssh_tunnel_loop():
                 creationflags=create_no_window,
             )
 
-            time.sleep(5)
+            time.sleep(3)
+
+            if is_local_port_open(MYSQL_TUNNEL_LOCAL_PORT):
+                startup_log(f"【MySQL隧道】启动成功：127.0.0.1:{MYSQL_TUNNEL_LOCAL_PORT} 已可连接")
+            elif proc.poll() is not None:
+                startup_log(f"【MySQL隧道】启动失败：ssh进程已退出，退出码={proc.returncode}")
+                proc = None
+                time.sleep(7)
+            else:
+                startup_log("【MySQL隧道】启动中：ssh进程已运行，等待本地端口监听")
+                time.sleep(5)
 
         except Exception as e:
-            startup_log(f"[mysql-tunnel] error: {e}")
+            startup_log(f"【MySQL隧道】异常：{type(e).__name__}: {e}")
             time.sleep(10)
 
 
 def adb_reverse_with_retry(max_attempts=2, delay_seconds=10):
     """启动时查找在线模拟器，并在首次未发现设备时重试一次 ADB reverse。"""
     if not AUTO_ADB_REVERSE:
-        startup_log("[adb-reverse] disabled")
+        startup_log("【ADB反向端口】未启用：AUTO_ADB_REVERSE=0")
         return
 
     if not os.path.exists(ADB_PATH):
-        startup_log(f"[adb-reverse] adb not found: {ADB_PATH}")
+        startup_log(f"【ADB反向端口】启动失败：找不到ADB：{ADB_PATH}")
         return
 
     for attempt in range(1, max_attempts + 1):
@@ -205,7 +227,7 @@ def adb_reverse_with_retry(max_attempts=2, delay_seconds=10):
                 if line.strip().endswith("\tdevice")
             ]
         except Exception as exc:
-            startup_log(f"[adb-reverse] adb devices 执行异常: {exc}")
+            startup_log(f"【ADB反向端口】执行 adb devices 异常：{exc}")
             devices = []
 
         if devices:
@@ -228,34 +250,172 @@ def adb_reverse_with_retry(max_attempts=2, delay_seconds=10):
                     )
                     if reverse_result.returncode == 0:
                         success_count += 1
-                        startup_log(f"[adb-reverse] ok: {device} tcp:{ADB_REVERSE_PORT}")
+                        startup_log(f"【ADB反向端口】成功：设备 {device} 已映射 tcp:{ADB_REVERSE_PORT}")
                     else:
-                        startup_log(f"[adb-reverse] failed: {device} {reverse_result.stderr.strip()}")
+                        startup_log(f"【ADB反向端口】失败：设备 {device}，原因：{reverse_result.stderr.strip()}")
                 except Exception as exc:
-                    startup_log(f"[adb-reverse] failed: {device} {exc}")
+                    startup_log(f"【ADB反向端口】异常：设备 {device}，原因：{exc}")
 
             if success_count > 0:
-                startup_log(f"ADB reverse 成功数量：{success_count}")
+                startup_log(f"【ADB反向端口】完成：成功数量 {success_count}")
             else:
-                startup_log("ADB reverse 最终失败：在线设备均执行失败")
+                startup_log("【ADB反向端口】最终失败：在线设备均执行失败")
             return
 
         if attempt < max_attempts:
-            startup_log(f"未发现模拟器，{delay_seconds}秒后重试")
+            startup_log(f"【ADB反向端口】未发现模拟器，{delay_seconds}秒后重试")
             time.sleep(delay_seconds)
         else:
-            startup_log("ADB reverse 最终失败：未发现模拟器")
+            startup_log("【ADB反向端口】最终失败：未发现模拟器")
+
+
+
+
+
+adb_reverse_mapped_devices = set()
+
+ADB_DEVICE_CODE_MAP = {
+    "emulator-5556": "1",
+    "emulator-5560": "2",
+    "emulator-5558": "3",
+    "emulator-5562": "4",
+    "emulator-5564": "5",
+    "emulator-5566": "6",
+}
+
+
+def adb_env():
+    """为 adb 子进程提供独立环境；ADB_SERVER_PORT 可用于避开其他软件的 adb server。"""
+    env = os.environ.copy()
+    env["ADB_SERVER_PORT"] = str(ADB_SERVER_PORT)
+    return env
+
+
+def adb_cmd(args, timeout=10):
+    """统一执行 adb 命令，便于设置 ADB_SERVER_PORT 和日志排查。"""
+    return subprocess.run(
+        [ADB_PATH] + args,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="ignore",
+        timeout=timeout,
+        env=adb_env(),
+    )
+
+
+def format_mapped_adb_devices():
+    """把已成功映射的模拟器设备名转换为固定编号，只显示已映射设备。"""
+    codes = []
+    for device, code in ADB_DEVICE_CODE_MAP.items():
+        if device in adb_reverse_mapped_devices:
+            codes.append(code)
+
+    codes = sorted(codes, key=lambda x: int(x))
+    return "，".join(codes) if codes else "无"
+
+
+def log_current_mapped_adb_devices():
+    startup_log(f"【ADB反向端口】当前设备：{format_mapped_adb_devices()}")
+
+
+def parse_adb_reverse_list(output):
+    """解析 adb reverse --list，返回已经存在 tcp:PORT -> tcp:PORT 映射的设备集合。"""
+    mapped = set()
+    target = f"tcp:{ADB_REVERSE_PORT}"
+    for line in (output or "").splitlines():
+        parts = line.split()
+        if len(parts) >= 3 and parts[1] == target and parts[2] == target:
+            mapped.add(parts[0])
+    return mapped
+
+
+def adb_reverse_monitor_loop():
+    """
+    持续扫描在线模拟器，并修复 ADB reverse 映射。
+
+    重点：
+    - 不只给新设备映射；每轮都会检查 reverse --list
+    - 如果按键精灵手机助手重启/抢占 adb server 导致 reverse 丢失，本线程会自动补回
+    - ADB_SERVER_PORT 可设为 5038，让 img.py 使用独立 adb server，减少与其他软件冲突
+    """
+    if not AUTO_ADB_REVERSE:
+        startup_log("【ADB反向端口】未启用：AUTO_ADB_REVERSE=0")
+        return
+
+    if not os.path.exists(ADB_PATH):
+        startup_log(f"【ADB反向端口】启动失败：找不到ADB：{ADB_PATH}")
+        return
+
+    startup_log(
+        f"【ADB反向端口】后台守护已启动：每 {ADB_REVERSE_INTERVAL} 秒检查一次；"
+        f"adb server端口={ADB_SERVER_PORT}"
+    )
+
+    while True:
+        try:
+            # 主动启动/保活 adb server，避免其他软件重启后本进程不恢复。
+            try:
+                adb_cmd(["start-server"], timeout=10)
+            except Exception as exc:
+                startup_log(f"【ADB反向端口】start-server异常：{type(exc).__name__}: {exc}")
+
+            result = adb_cmd(["devices"], timeout=10)
+
+            devices = [
+                line.split()[0]
+                for line in result.stdout.splitlines()
+                if line.strip().endswith("\tdevice")
+            ]
+
+            online_devices = set(devices)
+
+            # 读取当前真实 reverse 映射；按这个结果纠正内存状态。
+            reverse_result = adb_cmd(["reverse", "--list"], timeout=10)
+            existing_mapped_devices = parse_adb_reverse_list(reverse_result.stdout)
+
+            adb_reverse_mapped_devices.clear()
+            adb_reverse_mapped_devices.update(device for device in existing_mapped_devices if device in online_devices)
+
+            # 在线但没有映射的设备，每轮都尝试补映射。
+            for device in devices:
+                if device in adb_reverse_mapped_devices:
+                    continue
+
+                reverse_set_result = adb_cmd(
+                    [
+                        "-s", device,
+                        "reverse",
+                        f"tcp:{ADB_REVERSE_PORT}",
+                        f"tcp:{ADB_REVERSE_PORT}",
+                    ],
+                    timeout=10,
+                )
+
+                if reverse_set_result.returncode == 0:
+                    adb_reverse_mapped_devices.add(device)
+                    device_code = ADB_DEVICE_CODE_MAP.get(device, device)
+                    startup_log(f"【ADB反向端口】映射成功/已修复：{device_code} ({device}) tcp:{ADB_REVERSE_PORT}")
+                else:
+                    startup_log(
+                        f"【ADB反向端口】映射失败：{device}，原因：{reverse_set_result.stderr.strip()}"
+                    )
+
+            log_current_mapped_adb_devices()
+
+        except Exception as exc:
+            startup_log(f"【ADB反向端口】后台守护异常：{type(exc).__name__}: {exc}")
+            log_current_mapped_adb_devices()
+
+        time.sleep(ADB_REVERSE_INTERVAL)
 
 
 def start_startup_tools():
     threading.Thread(target=mysql_ssh_tunnel_loop, daemon=True).start()
+    threading.Thread(target=adb_reverse_monitor_loop, daemon=True).start()
 
-    # ADB reverse 首次未发现设备时仅重试一次。
-    adb_reverse_with_retry()
+    startup_log("【启动工具】MySQL隧道线程已启动，ADB反向端口后台守护已启动")
 
-    startup_log("[startup-tools] mysql tunnel thread started, adb reverse completed")
-    
-    
 # ----------------- MySQL 数据库配置 -----------------
 db_config = {
     'host': os.getenv('DB_HOST', '127.0.0.1'),
@@ -741,10 +901,12 @@ def schedule_job():
 
 # ----------------- 运行心跳与统一接口日志 -----------------
 def heartbeat_loop():
-    """每 60 秒输出一次进程存活提示。"""
+    """每 60 秒输出一次进程存活提示，并统计心跳次数。"""
+    heartbeat_count = 0
     while True:
         time.sleep(60)
-        print("✅ img.py 正常运行中，正在等待按键精灵/模拟器请求...")
+        heartbeat_count += 1
+        print(f"运行中，循环次数：{heartbeat_count}")
 
 
 @app.before_request
