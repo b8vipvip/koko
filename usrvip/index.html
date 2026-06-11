@@ -1423,5 +1423,893 @@ function copyUserID(userid) {
   setTimeout(validateAndMaybeSubmit, 0);
 })();
 </script>
+
+<!-- KOKO_VIRTUAL_PROGRESS_V1 -->
+<script>
+(function () {
+  const STORE_PREFIX = 'koko_virtual_progress_duration_v1:';
+
+  const TASKS = {
+    sfyzm: {
+      title: '正在发送验证码',
+      tips: '正在连接浏览器并请求验证码，请勿关闭页面',
+      fallbackMs: 9000
+    },
+    submit: {
+      title: '正在提交兑换',
+      tips: '正在识别账号并提交兑换，请勿关闭页面',
+      fallbackMs: 25000
+    },
+    api_fasong: {
+      title: '正在保存验证码任务',
+      tips: '正在保存信息并创建验证码任务',
+      fallbackMs: 5000
+    },
+    api_chongzhi: {
+      title: '正在确认兑换任务',
+      tips: '正在提交兑换任务，请勿关闭页面',
+      fallbackMs: 25000
+    },
+    api: {
+      title: '正在处理请求',
+      tips: '请稍候，系统正在处理',
+      fallbackMs: 12000
+    }
+  };
+
+  function nowMs() {
+    return Date.now();
+  }
+
+  function safeJsonParse(text) {
+    try { return JSON.parse(text); } catch (e) { return null; }
+  }
+
+  function getHistory(taskKey) {
+    try {
+      const arr = JSON.parse(localStorage.getItem(STORE_PREFIX + taskKey) || '[]');
+      return Array.isArray(arr) ? arr.filter(x => Number.isFinite(x) && x > 300 && x < 600000) : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveDuration(taskKey, ms) {
+    if (!taskKey || !Number.isFinite(ms) || ms <= 300) return;
+
+    const arr = getHistory(taskKey);
+    arr.push(ms);
+
+    while (arr.length > 50) arr.shift();
+    localStorage.setItem(STORE_PREFIX + taskKey, JSON.stringify(arr));
+  }
+
+  function avgDuration(taskKey, fallbackMs) {
+    const arr = getHistory(taskKey);
+    if (!arr.length) return fallbackMs;
+
+    const sum = arr.reduce((a, b) => a + b, 0);
+    const avg = sum / arr.length;
+
+    // 防止极端值导致进度条太快或太慢
+    return Math.max(3000, Math.min(avg, 120000));
+  }
+
+  function formatSecond(ms) {
+    return Math.max(1, Math.round(ms / 1000));
+  }
+
+  function classifyRequest(url, method, body) {
+    const u = String(url || '');
+    const m = String(method || 'GET').toUpperCase();
+
+    if (m !== 'POST' && m !== 'GET') return null;
+
+    if (u.includes('/sfyzm')) {
+      return { key: 'sfyzm', ...TASKS.sfyzm };
+    }
+
+    if (u.includes('/submit')) {
+      return { key: 'submit', ...TASKS.submit };
+    }
+
+    if (u === 'api' || u.endsWith('/api') || u.includes('/api?') || u.includes('/api/')) {
+      let data = body;
+
+      if (typeof data === 'string') {
+        data = safeJsonParse(data) || {};
+      }
+
+      const type = data && data.type ? String(data.type) : '';
+
+      if (type === 'fasong') {
+        return { key: 'api_fasong', ...TASKS.api_fasong };
+      }
+
+      if (type === 'chongzhi') {
+        return { key: 'api_chongzhi', ...TASKS.api_chongzhi };
+      }
+
+      return { key: 'api', ...TASKS.api };
+    }
+
+    return null;
+  }
+
+  function getLayer(callback) {
+    if (window.layui && layui.layer) {
+      callback(layui.layer);
+      return;
+    }
+
+    if (window.layui && layui.use) {
+      layui.use(['layer'], function () {
+        callback(layui.layer);
+      });
+      return;
+    }
+
+    callback(null);
+  }
+
+  function openVirtualProgress(task) {
+    const expectedMs = avgDuration(task.key, task.fallbackMs || 15000);
+    const start = nowMs();
+    let layerIndex = null;
+    let timer = null;
+    let done = false;
+
+    const html = `
+      <div style="padding:22px 24px 20px 24px;width:300px;box-sizing:border-box;">
+        <div style="font-size:17px;font-weight:600;color:#222;text-align:center;">${task.title}</div>
+        <div style="font-size:12px;color:#777;text-align:center;margin-top:6px;">${task.tips}</div>
+
+        <div style="margin-top:18px;background:#eef2f7;border-radius:999px;height:14px;overflow:hidden;">
+          <div id="koko_vp_bar" style="height:14px;width:3%;border-radius:999px;background:linear-gradient(90deg,#1890ff,#52c41a);transition:width .25s;"></div>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:12px;color:#666;">
+          <span id="koko_vp_percent">3%</span>
+          <span id="koko_vp_time">预计 ${formatSecond(expectedMs)} 秒</span>
+        </div>
+
+        <div id="koko_vp_hint" style="font-size:12px;color:#999;text-align:center;margin-top:10px;">
+          系统正在处理，请勿重复点击
+        </div>
+      </div>
+    `;
+
+    function calcPercent(elapsed) {
+      const ratio = elapsed / expectedMs;
+
+      // 0% - 70%：较快推进
+      if (ratio < 0.65) {
+        return 3 + ratio * 105;
+      }
+
+      // 70% - 92%：中速推进
+      if (ratio < 1.0) {
+        return 71 + (ratio - 0.65) * 60;
+      }
+
+      // 超过平均耗时后，最多卡在 96%，直到接口真的返回
+      if (ratio < 1.8) {
+        return 92 + (ratio - 1.0) * 5;
+      }
+
+      return 96;
+    }
+
+    function setProgress(percent, text) {
+      const p = Math.max(0, Math.min(100, Math.round(percent)));
+      const bar = document.getElementById('koko_vp_bar');
+      const pct = document.getElementById('koko_vp_percent');
+      const tm = document.getElementById('koko_vp_time');
+      const hint = document.getElementById('koko_vp_hint');
+
+      if (bar) bar.style.width = p + '%';
+      if (pct) pct.textContent = p + '%';
+      if (tm) tm.textContent = text || `已等待 ${formatSecond(nowMs() - start)} 秒`;
+      if (hint && p >= 92) hint.textContent = '即将完成，正在等待最终结果';
+    }
+
+    getLayer(function (layer) {
+      if (!layer) return;
+
+      layerIndex = layer.open({
+        type: 1,
+        title: false,
+        closeBtn: 0,
+        shade: [0.35, '#000'],
+        shadeClose: false,
+        area: ['350px', '190px'],
+        content: html
+      });
+
+      timer = setInterval(function () {
+        if (done) return;
+        const elapsed = nowMs() - start;
+        setProgress(calcPercent(elapsed));
+      }, 250);
+    });
+
+    return {
+      finish: function (ok) {
+        done = true;
+        if (timer) clearInterval(timer);
+
+        saveDuration(task.key, nowMs() - start);
+
+        setProgress(100, ok ? '已完成' : '请求结束');
+
+        setTimeout(function () {
+          if (window.layui && layui.layer && layerIndex !== null) {
+            layui.layer.close(layerIndex);
+          }
+        }, 350);
+      }
+    };
+  }
+
+  // 包装 fetch：用于 /submit、/sfyzm 等
+  if (window.fetch && !window.fetch.__kokoProgressWrapped) {
+    const rawFetch = window.fetch;
+
+    const wrappedFetch = function (input, init) {
+      const url = typeof input === 'string' ? input : (input && input.url);
+      const method = (init && init.method) || 'GET';
+      const body = init && init.body;
+
+      const task = classifyRequest(url, method, body);
+      const progress = task ? openVirtualProgress(task) : null;
+
+      return rawFetch.apply(this, arguments)
+        .then(function (res) {
+          if (progress) progress.finish(res.ok);
+          return res;
+        })
+        .catch(function (err) {
+          if (progress) progress.finish(false);
+          throw err;
+        });
+    };
+
+    wrappedFetch.__kokoProgressWrapped = true;
+    window.fetch = wrappedFetch;
+  }
+
+  // 包装 jQuery ajax：用于老代码 $.ajax({url:"api", data:{type:"fasong/chongzhi"}})
+  if (window.jQuery && $.ajax && !$.ajax.__kokoProgressWrapped) {
+    const rawAjax = $.ajax;
+
+    $.ajax = function (options) {
+      const opt = options || {};
+      const task = classifyRequest(opt.url, opt.type || opt.method || 'GET', opt.data);
+      const progress = task ? openVirtualProgress(task) : null;
+
+      const jq = rawAjax.apply(this, arguments);
+
+      if (progress && jq && jq.always) {
+        jq.always(function () {
+          progress.finish(true);
+        });
+      }
+
+      return jq;
+    };
+
+    $.ajax.__kokoProgressWrapped = true;
+  }
+})();
+</script>
+
+
+<!-- KOKO_RECHARGE_6MIN_PROGRESS_V1_START -->
+<style>
+.koko-recharge-progress-card{
+  width:100%;
+  box-sizing:border-box;
+  padding:14px 14px 12px;
+  border-radius:12px;
+  background:linear-gradient(180deg,#ffffff,#f8fbff);
+  border:1px solid #e7eef8;
+  box-shadow:0 4px 14px rgba(24,144,255,.08);
+  margin:10px 0;
+}
+.koko-recharge-progress-title{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  font-size:14px;
+  font-weight:600;
+  color:#222;
+  margin-bottom:8px;
+}
+.koko-recharge-progress-percent{
+  color:#1890ff;
+  font-size:15px;
+  font-weight:700;
+}
+.koko-recharge-progress-track{
+  width:100%;
+  height:14px;
+  border-radius:999px;
+  background:#edf3fb;
+  overflow:hidden;
+  position:relative;
+}
+.koko-recharge-progress-bar{
+  height:100%;
+  width:1%;
+  border-radius:999px;
+  background:linear-gradient(90deg,#1890ff,#52c41a);
+  transition:width .35s ease;
+  position:relative;
+}
+.koko-recharge-progress-bar:after{
+  content:"";
+  position:absolute;
+  inset:0;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.45),transparent);
+  animation:kokoRechargeShine 1.6s infinite;
+}
+@keyframes kokoRechargeShine{
+  0%{transform:translateX(-100%);}
+  100%{transform:translateX(100%);}
+}
+.koko-recharge-progress-meta{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  font-size:12px;
+  color:#666;
+  margin-top:8px;
+}
+.koko-recharge-progress-text{
+  font-size:13px;
+  color:#666;
+  line-height:1.65;
+  margin-top:10px;
+  word-break:break-word;
+}
+.koko-recharge-progress-warn{
+  color:#ff4d4f;
+  font-weight:700;
+}
+.koko-recharge-progress-tip{
+  margin-top:8px;
+  padding:8px 10px;
+  border-radius:8px;
+  background:#fffbe6;
+  color:#8a6d1f;
+  font-size:12px;
+  line-height:1.55;
+}
+.koko-recharge-account-copy{
+  margin-top:10px;
+  max-height:180px;
+  overflow:auto;
+}
+.koko-recharge-dialog-wrap{
+  box-sizing:border-box;
+  padding:18px;
+  width:360px;
+}
+</style>
+
+<script>
+(function(){
+  const TOTAL_MS = 6 * 60 * 1000;
+  const STORE_KEY = 'koko_recharge_6min_progress_v1';
+  const PATCH_FLAG = '__kokoRecharge6MinProgressInstalled';
+
+  if (window[PATCH_FLAG]) return;
+  window[PATCH_FLAG] = true;
+
+  function now(){ return Date.now(); }
+
+  function pad2(n){ return String(n).padStart(2,'0'); }
+
+  function formatRemain(ms){
+    ms = Math.max(0, ms);
+    const sec = Math.ceil(ms / 1000);
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${pad2(s)}`;
+  }
+
+  function calcPercent(startAt){
+    const elapsed = Math.max(0, now() - startAt);
+    if (elapsed >= TOTAL_MS) return 100;
+
+    const ratio = elapsed / TOTAL_MS;
+
+    // 虚拟进度：前期平稳，中后期慢一点，避免太快到100
+    let percent;
+    if (ratio < 0.25) {
+      percent = 3 + ratio * 160;          // 3% - 43%
+    } else if (ratio < 0.75) {
+      percent = 43 + (ratio - 0.25) * 86; // 43% - 86%
+    } else {
+      percent = 86 + (ratio - 0.75) * 48; // 86% - 98%
+    }
+    return Math.min(98, Math.max(1, percent));
+  }
+
+  function saveProgress(extra){
+    const old = getProgress() || {};
+    const data = Object.assign({}, old, extra || {});
+    if (!data.startAt) data.startAt = now();
+    data.totalMs = TOTAL_MS;
+    data.updatedAt = now();
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch(e){}
+    return data;
+  }
+
+  function getProgress(){
+    try {
+      const data = JSON.parse(localStorage.getItem(STORE_KEY) || '{}');
+      if (!data || !data.startAt) return null;
+      return data;
+    } catch(e){
+      return null;
+    }
+  }
+
+  function getAccountInfoHtml(){
+    const el = document.getElementById('accountInfoOutside');
+    if (!el) return '';
+    const html = el.outerHTML || el.innerHTML || '';
+    if (!html.trim()) return '';
+    return `<div class="koko-recharge-account-copy">${html}</div>`;
+  }
+
+  function defaultText(){
+    return `充值中，大概<span class="koko-recharge-progress-warn">6分钟</span>后到账，如未到账可联系客服。`;
+  }
+
+  function createProgressHtml(opts){
+    opts = opts || {};
+    const text = opts.text || defaultText();
+    const accountHtml = opts.accountHtml ? getAccountInfoHtml() : '';
+    const title = opts.title || '充值进度';
+    return `
+      <div class="koko-recharge-progress-card" data-koko-recharge-progress="1">
+        <div class="koko-recharge-progress-title">
+          <span>${title}</span>
+          <span class="koko-recharge-progress-percent">1%</span>
+        </div>
+        <div class="koko-recharge-progress-track">
+          <div class="koko-recharge-progress-bar"></div>
+        </div>
+        <div class="koko-recharge-progress-meta">
+          <span class="koko-recharge-progress-elapsed">已提交：0分钟</span>
+          <span class="koko-recharge-progress-countdown">剩余：6:00</span>
+        </div>
+        <div class="koko-recharge-progress-text">${text}</div>
+        <div class="koko-recharge-progress-tip">
+          已提交充值任务，系统正在处理。可以关闭页面，后续点击“查询进度”也能继续查看进度。
+        </div>
+        ${accountHtml}
+      </div>
+    `;
+  }
+
+  function updateProgressDom(root, data){
+    if (!root || !data || !data.startAt) return;
+
+    const elapsed = Math.max(0, now() - data.startAt);
+    const remain = Math.max(0, TOTAL_MS - elapsed);
+    const percent = calcPercent(data.startAt);
+    const percentText = Math.round(percent) + '%';
+
+    const bar = root.querySelector('.koko-recharge-progress-bar');
+    const pct = root.querySelector('.koko-recharge-progress-percent');
+    const elapsedEl = root.querySelector('.koko-recharge-progress-elapsed');
+    const countdownEl = root.querySelector('.koko-recharge-progress-countdown');
+    const textEl = root.querySelector('.koko-recharge-progress-text');
+
+    if (bar) bar.style.width = percent + '%';
+    if (pct) pct.textContent = percentText;
+
+    const elapsedMin = Math.max(0, Math.floor(elapsed / 60000));
+    if (elapsedEl) elapsedEl.textContent = `已提交：${elapsedMin}分钟`;
+
+    if (countdownEl) {
+      countdownEl.textContent = remain > 0 ? `剩余：${formatRemain(remain)}` : '预计时间已到';
+    }
+
+    if (textEl && percent >= 100) {
+      textEl.innerHTML = `预计到账时间已到，如未到账可联系客服或点击查询进度查看最新状态。`;
+    }
+  }
+
+  function mountProgressInElement(el, title, text){
+    if (!el) return;
+    const data = saveProgress({});
+    el.innerHTML = createProgressHtml({
+      title: title || '充值进度',
+      text: text || defaultText(),
+      accountHtml: false
+    });
+    const root = el.querySelector('[data-koko-recharge-progress="1"]');
+    updateProgressDom(root, data);
+  }
+
+  function refreshAllProgress(){
+    const data = getProgress();
+    if (!data) return;
+
+    document.querySelectorAll('[data-koko-recharge-progress="1"]').forEach(function(root){
+      updateProgressDom(root, data);
+    });
+  }
+
+  function openRechargeProgressDialog(){
+    const data = saveProgress({});
+    const html = `
+      <div class="koko-recharge-dialog-wrap">
+        ${createProgressHtml({
+          title:'正在充值',
+          text: defaultText(),
+          accountHtml:true
+        })}
+      </div>
+    `;
+
+    function openByLayer(layer){
+      const index = layer.open({
+        type: 1,
+        title: false,
+        closeBtn: 1,
+        shade: [0.35, '#000'],
+        shadeClose: false,
+        area: ['400px', 'auto'],
+        content: html,
+        success: function(dom){
+          const root = dom[0] ? dom[0].querySelector('[data-koko-recharge-progress="1"]') : null;
+          updateProgressDom(root, data);
+        }
+      });
+      return index;
+    }
+
+    if (window.layui && layui.layer) {
+      return openByLayer(layui.layer);
+    }
+
+    if (window.layui && layui.use) {
+      layui.use(['layer'], function(){
+        openByLayer(layui.layer);
+      });
+      return;
+    }
+
+    alert('充值任务已提交，预计6分钟左右到账。可以关闭页面，后续点击查询进度也能查看进度。');
+  }
+
+  function installLayerPatch(){
+    if (!window.layui || !layui.layer) return false;
+    const layer = layui.layer;
+    if (layer.__kokoRechargeProgressPatched) return true;
+
+    const rawAlert = layer.alert;
+    const rawMsg = layer.msg;
+
+    layer.alert = function(content){
+      const text = String(content || '');
+      if (text.indexOf('正在充值') !== -1 && text.indexOf('6分钟') !== -1) {
+        openRechargeProgressDialog();
+        return 0;
+      }
+      return rawAlert.apply(this, arguments);
+    };
+
+    layer.msg = function(content){
+      const text = String(content || '');
+      if (text.indexOf('正在充值') !== -1 && text.indexOf('6分钟') !== -1) {
+        openRechargeProgressDialog();
+        return 0;
+      }
+      return rawMsg.apply(this, arguments);
+    };
+
+    layer.__kokoRechargeProgressPatched = true;
+    return true;
+  }
+
+  function patchRechargeStatusBoxes(){
+    const statusEl = document.getElementById('rechargeStatus');
+    const resultEl = document.getElementById('rechargeResult');
+
+    if (statusEl && !statusEl.querySelector('[data-koko-recharge-progress="1"]')) {
+      const txt = statusEl.innerText || '';
+      if (txt.indexOf('充值中') !== -1 || txt.indexOf('6分钟') !== -1) {
+        mountProgressInElement(statusEl, '充值进度', defaultText());
+      }
+    }
+
+    if (resultEl && !resultEl.querySelector('[data-koko-recharge-progress="1"]')) {
+      const txt = resultEl.innerText || '';
+      if (txt.indexOf('充值中') !== -1 || txt.indexOf('已提交') !== -1) {
+        mountProgressInElement(resultEl, '充值结果', `充值中，系统已提交任务，预计<span class="koko-recharge-progress-warn">6分钟</span>内到账。`);
+      }
+    }
+  }
+
+  function observeRechargeBoxes(){
+    const obs = new MutationObserver(function(){
+      patchRechargeStatusBoxes();
+    });
+
+    obs.observe(document.documentElement, {
+      childList:true,
+      subtree:true,
+      characterData:true
+    });
+  }
+
+  // 暴露给原有代码或调试使用
+  window.kokoStartRecharge6MinProgress = function(){
+    saveProgress({startAt: now()});
+    openRechargeProgressDialog();
+    patchRechargeStatusBoxes();
+  };
+
+  // 页面加载后，如果本地有未完成进度，也继续刷新
+  document.addEventListener('DOMContentLoaded', function(){
+    saveProgress(getProgress() || {});
+    installLayerPatch();
+    patchRechargeStatusBoxes();
+    observeRechargeBoxes();
+
+    setInterval(function(){
+      installLayerPatch();
+      patchRechargeStatusBoxes();
+      refreshAllProgress();
+    }, 1000);
+  });
+
+  // 兼容脚本在 body 末尾插入但 DOMContentLoaded 已触发的情况
+  setTimeout(function(){
+    installLayerPatch();
+    patchRechargeStatusBoxes();
+    observeRechargeBoxes();
+    setInterval(refreshAllProgress, 1000);
+  }, 500);
+})();
+</script>
+<!-- KOKO_RECHARGE_6MIN_PROGRESS_V1_END -->
+
+
+<!-- KOKO_PORTAL_FRONTEND_PATCH_V1_START -->
+<script>
+(function () {
+  if (window.__KOKO_PORTAL_FRONTEND_PATCH_V1__) return;
+  window.__KOKO_PORTAL_FRONTEND_PATCH_V1__ = true;
+
+  const host = location.hostname;
+
+  const PORTAL_MAP = {
+    "cn12.vip": {
+      submit_portal: "retail_site",
+      submit_domain: "cn12.vip",
+      show_buy_entry: true
+    },
+    "vip.ka8.shop": {
+      submit_portal: "agent_site",
+      submit_domain: "vip.ka8.shop",
+      show_buy_entry: false
+    }
+  };
+
+  const currentPortal = PORTAL_MAP[host] || {
+    submit_portal: "unknown",
+    submit_domain: host || "",
+    show_buy_entry: false
+  };
+
+  window.KOKO_SUBMIT_PORTAL = currentPortal.submit_portal;
+  window.KOKO_SUBMIT_DOMAIN = currentPortal.submit_domain;
+  window.KOKO_SHOW_BUY_ENTRY = currentPortal.show_buy_entry;
+
+  function isObject(v) {
+    return v && typeof v === "object" && !Array.isArray(v);
+  }
+
+  function appendPortalToJsonBody(body) {
+    let obj = {};
+
+    if (typeof body === "string" && body.trim()) {
+      try {
+        obj = JSON.parse(body);
+      } catch (e) {
+        return body;
+      }
+    } else if (isObject(body)) {
+      obj = body;
+    }
+
+    if (!isObject(obj)) return body;
+
+    if (!obj.submit_portal) obj.submit_portal = currentPortal.submit_portal;
+    if (!obj.submit_domain) obj.submit_domain = currentPortal.submit_domain;
+
+    return JSON.stringify(obj);
+  }
+
+  function appendPortalToData(data) {
+    if (!data) return data;
+
+    if (typeof FormData !== "undefined" && data instanceof FormData) {
+      if (!data.has("submit_portal")) data.append("submit_portal", currentPortal.submit_portal);
+      if (!data.has("submit_domain")) data.append("submit_domain", currentPortal.submit_domain);
+      return data;
+    }
+
+    if (typeof URLSearchParams !== "undefined" && data instanceof URLSearchParams) {
+      if (!data.has("submit_portal")) data.append("submit_portal", currentPortal.submit_portal);
+      if (!data.has("submit_domain")) data.append("submit_domain", currentPortal.submit_domain);
+      return data;
+    }
+
+    if (typeof data === "string") {
+      const parsed = safeParseJson(data);
+      if (parsed) return appendPortalToJsonBody(data);
+
+      const params = new URLSearchParams(data);
+      if (!params.has("submit_portal")) params.append("submit_portal", currentPortal.submit_portal);
+      if (!params.has("submit_domain")) params.append("submit_domain", currentPortal.submit_domain);
+      return params.toString();
+    }
+
+    if (isObject(data)) {
+      if (!data.submit_portal) data.submit_portal = currentPortal.submit_portal;
+      if (!data.submit_domain) data.submit_domain = currentPortal.submit_domain;
+      return data;
+    }
+
+    return data;
+  }
+
+  function safeParseJson(text) {
+    try {
+      const obj = JSON.parse(text);
+      return isObject(obj) ? obj : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function shouldPatchApiUrl(url) {
+    const u = String(url || "");
+    return (
+      u === "api" ||
+      u.endsWith("/api") ||
+      u.includes("/api?") ||
+      u.includes("/submit") ||
+      u.includes("/sfyzm") ||
+      u.includes("/check_order_validity") ||
+      u.includes("/check_recharge_duplicate") ||
+      u.includes("/get_recharge_status")
+    );
+  }
+
+  function patchBuyEntryVisibility() {
+    const hide = !currentPortal.show_buy_entry;
+
+    const selectorList = [
+      "#buyEntry",
+      "#purchaseEntry",
+      ".buy-entry",
+      ".purchase-entry",
+      ".koko-buy-entry",
+      "[data-buy-entry]",
+      "[data-purchase-entry]"
+    ];
+
+    selectorList.forEach(function (sel) {
+      document.querySelectorAll(sel).forEach(function (el) {
+        el.style.display = hide ? "none" : "";
+      });
+    });
+
+    if (hide) {
+      document.querySelectorAll("a,button,div,span,li").forEach(function (el) {
+        const text = (el.innerText || "").replace(/\s+/g, "");
+        if (!text) return;
+
+        const isBuyText =
+          text.includes("购买兑换码") ||
+          text.includes("购买卡密") ||
+          text.includes("买兑换码") ||
+          text.includes("购买会员") ||
+          text === "购买";
+
+        if (isBuyText) {
+          el.style.display = "none";
+        }
+      });
+    }
+  }
+
+  function installFetchPatch() {
+    if (!window.fetch || window.fetch.__KOKO_PORTAL_PATCHED__) return;
+
+    const rawFetch = window.fetch;
+
+    const patchedFetch = function (input, init) {
+      init = init || {};
+
+      const url = typeof input === "string" ? input : (input && input.url ? input.url : "");
+
+      if (shouldPatchApiUrl(url)) {
+        const headers = new Headers(init.headers || {});
+        headers.set("X-Submit-Portal", currentPortal.submit_portal);
+        headers.set("X-Submit-Domain", currentPortal.submit_domain);
+        init.headers = headers;
+
+        const contentType = headers.get("Content-Type") || headers.get("content-type") || "";
+
+        if (init.body) {
+          if (contentType.includes("application/json") || typeof init.body === "string") {
+            init.body = appendPortalToJsonBody(init.body);
+          } else {
+            init.body = appendPortalToData(init.body);
+          }
+        }
+      }
+
+      return rawFetch.call(this, input, init);
+    };
+
+    patchedFetch.__KOKO_PORTAL_PATCHED__ = true;
+    window.fetch = patchedFetch;
+  }
+
+  function installAjaxPatch() {
+    if (!window.jQuery || !jQuery.ajax || jQuery.ajax.__KOKO_PORTAL_PATCHED__) return;
+
+    const $ = window.jQuery;
+    const rawAjax = $.ajax;
+
+    $.ajax = function (options) {
+      const opt = options || {};
+      const url = opt.url || "";
+
+      if (shouldPatchApiUrl(url)) {
+        opt.headers = opt.headers || {};
+        opt.headers["X-Submit-Portal"] = currentPortal.submit_portal;
+        opt.headers["X-Submit-Domain"] = currentPortal.submit_domain;
+
+        if (opt.contentType && String(opt.contentType).includes("application/json")) {
+          opt.data = appendPortalToJsonBody(opt.data || "{}");
+        } else {
+          opt.data = appendPortalToData(opt.data || {});
+        }
+      }
+
+      return rawAjax.apply(this, arguments);
+    };
+
+    $.ajax.__KOKO_PORTAL_PATCHED__ = true;
+  }
+
+  function boot() {
+    patchBuyEntryVisibility();
+    installFetchPatch();
+    installAjaxPatch();
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    boot();
+    setInterval(patchBuyEntryVisibility, 1000);
+  });
+
+  setTimeout(boot, 300);
+})();
+</script>
+<!-- KOKO_PORTAL_FRONTEND_PATCH_V1_END -->
+
 </body>
 </html>
