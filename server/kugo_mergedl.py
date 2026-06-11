@@ -3546,6 +3546,213 @@ def code_fetch():
 
 
 
+
+# KOKO_EXCHANGE_LINK_CONFIG_API_V1_START
+# ka.k2n.cn/kami.html 兑换链接配置：
+# retail_exchange_url 普通用户兑换链接，默认 https://cn12.vip
+# agent_exchange_url  代理兑换链接，默认 https://vip.ka8.shop
+import re as _koko_exchange_re
+
+_KOKO_DEFAULT_RETAIL_EXCHANGE_URL = "https://cn12.vip"
+_KOKO_DEFAULT_AGENT_EXCHANGE_URL = "https://vip.ka8.shop"
+
+def _koko_exchange_clean_url(value, default):
+    value = str(value or "").strip()
+    if not value:
+        return default
+
+    if not _koko_exchange_re.match(r"^https?://[A-Za-z0-9.-]+(?::\d+)?(?:/.*)?$", value):
+        raise ValueError("兑换链接格式错误，必须是 http:// 或 https:// 开头")
+
+    return value.rstrip("/")
+
+def _koko_exchange_get_setting(cursor, key, default):
+    try:
+        cursor.execute("SELECT setting_value FROM system_settings WHERE setting_key=%s LIMIT 1", (key,))
+        row = cursor.fetchone()
+        if not row:
+            return default
+        if isinstance(row, dict):
+            return str(row.get("setting_value") or "").strip() or default
+        return str(row[0] or "").strip() or default
+    except Exception:
+        return default
+
+def _koko_exchange_set_setting(cursor, key, value):
+    # KOKO_EXCHANGE_LINK_UPSERT_FIX_V5
+    # 使用 INSERT ... ON DUPLICATE KEY UPDATE，避免值未变化时 UPDATE rowcount=0 误触发 INSERT。
+    cursor.execute(
+        """
+        INSERT INTO system_settings (setting_key, setting_value, updated_at)
+        VALUES (%s, %s, NOW())
+        ON DUPLICATE KEY UPDATE
+          setting_value = VALUES(setting_value),
+          updated_at = NOW()
+        """,
+        (key, value)
+    )
+
+@app.route("/exchange_link_config", methods=["GET"])
+def koko_exchange_link_config_public():
+    conn = None
+    try:
+        conn = get_db_connection(dict_cursor=True)
+        with conn.cursor() as cursor:
+            retail_url = _koko_exchange_get_setting(cursor, "retail_exchange_url", _KOKO_DEFAULT_RETAIL_EXCHANGE_URL)
+            agent_url = _koko_exchange_get_setting(cursor, "agent_exchange_url", _KOKO_DEFAULT_AGENT_EXCHANGE_URL)
+
+        return jsonify({
+            "success": True,
+            "status": "success",
+            "retail_exchange_url": retail_url or _KOKO_DEFAULT_RETAIL_EXCHANGE_URL,
+            "agent_exchange_url": agent_url or _KOKO_DEFAULT_AGENT_EXCHANGE_URL,
+            "defaults": {
+                "retail_exchange_url": _KOKO_DEFAULT_RETAIL_EXCHANGE_URL,
+                "agent_exchange_url": _KOKO_DEFAULT_AGENT_EXCHANGE_URL
+            }
+        })
+    except Exception as e:
+        try:
+            logger.exception("/exchange_link_config failed")
+        except Exception:
+            pass
+
+        return jsonify({
+            "success": True,
+            "status": "fallback",
+            "retail_exchange_url": _KOKO_DEFAULT_RETAIL_EXCHANGE_URL,
+            "agent_exchange_url": _KOKO_DEFAULT_AGENT_EXCHANGE_URL,
+            "message": str(e)
+        })
+    finally:
+        if conn:
+            conn.close()
+
+@app.route("/admin/exchange_link_config", methods=["GET", "POST"])
+@admin_required
+def koko_exchange_link_config_admin():
+    conn = None
+    try:
+        if request.method == "GET":
+            return koko_exchange_link_config_public()
+
+        data = request.get_json(silent=True) or {}
+
+        retail_url = _koko_exchange_clean_url(
+            data.get("retail_exchange_url"),
+            _KOKO_DEFAULT_RETAIL_EXCHANGE_URL
+        )
+        agent_url = _koko_exchange_clean_url(
+            data.get("agent_exchange_url"),
+            _KOKO_DEFAULT_AGENT_EXCHANGE_URL
+        )
+
+        conn = get_db_connection(dict_cursor=True, autocommit=False)
+        conn.begin()
+        with conn.cursor() as cursor:
+            _koko_exchange_set_setting(cursor, "retail_exchange_url", retail_url)
+            _koko_exchange_set_setting(cursor, "agent_exchange_url", agent_url)
+        conn.commit()
+
+        return jsonify({
+            "success": True,
+            "status": "success",
+            "message": "兑换链接配置已保存",
+            "retail_exchange_url": retail_url,
+            "agent_exchange_url": agent_url
+        })
+
+    except ValueError as e:
+        if conn:
+            conn.rollback()
+        return jsonify({"success": False, "status": "error", "message": str(e)}), 400
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        try:
+            logger.exception("/admin/exchange_link_config failed")
+        except Exception:
+            pass
+        return jsonify({"success": False, "status": "error", "message": str(e)}), 500
+
+    finally:
+        if conn:
+            conn.close()
+# KOKO_EXCHANGE_LINK_CONFIG_API_V1_END
+
+
+# KOKO_EXCHANGE_LINK_REDEEM_URL_COMPAT_V5_START
+@app.after_request
+def koko_exchange_link_redeem_url_compat_v5(response):
+    """
+    兼容旧前端：
+    旧 kami.html / 系统配置 JS 可能读取 redeem_url、data.redeem_url、settings.redeem_url。
+    新数据库只保留 retail_exchange_url / agent_exchange_url。
+    这里不重新写数据库，只在 JSON 响应里补兼容字段。
+    """
+    try:
+        if request.path not in ("/exchange_link_config", "/admin/exchange_link_config"):
+            return response
+
+        data = response.get_json(silent=True)
+        if not isinstance(data, dict):
+            return response
+
+        defaults = data.get("defaults") if isinstance(data.get("defaults"), dict) else {}
+
+        retail_url = (
+            data.get("retail_exchange_url")
+            or defaults.get("retail_exchange_url")
+            or "https://cn12.vip"
+        )
+
+        agent_url = (
+            data.get("agent_exchange_url")
+            or defaults.get("agent_exchange_url")
+            or "https://vip.ka8.shop"
+        )
+
+        data["retail_exchange_url"] = retail_url
+        data["agent_exchange_url"] = agent_url
+
+        # 旧单链接字段，默认给普通用户链接
+        data["redeem_url"] = retail_url
+
+        # 兼容旧代码 settings.data.redeem_url / settings.settings.redeem_url
+        old_data = data.get("data") if isinstance(data.get("data"), dict) else {}
+        old_settings = data.get("settings") if isinstance(data.get("settings"), dict) else {}
+
+        old_data.update({
+            "redeem_url": retail_url,
+            "retail_exchange_url": retail_url,
+            "agent_exchange_url": agent_url
+        })
+
+        old_settings.update({
+            "redeem_url": retail_url,
+            "retail_exchange_url": retail_url,
+            "agent_exchange_url": agent_url
+        })
+
+        data["data"] = old_data
+        data["settings"] = old_settings
+
+        new_response = jsonify(data)
+        new_response.status_code = response.status_code
+
+        # 保留必要响应头，Content-Length 让 Flask 自动计算
+        for k, v in response.headers.items():
+            lk = k.lower()
+            if lk not in ("content-length", "content-type"):
+                new_response.headers[k] = v
+
+        return new_response
+
+    except Exception:
+        return response
+# KOKO_EXCHANGE_LINK_REDEEM_URL_COMPAT_V5_END
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=9999, debug=False)
 
