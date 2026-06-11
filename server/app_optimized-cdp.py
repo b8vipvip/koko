@@ -1664,6 +1664,216 @@ def send_verify_code():
 
 
 
+
+# KOKO_TIMING_WATCHDOG_V1_START
+# Selenium 详细耗时追踪：记录到 /opt/koko/logs/selenium_timing.log
+import sys as _koko_timing_sys
+import os as _koko_timing_os
+import time as _koko_timing_time
+import logging as _koko_timing_logging
+import traceback as _koko_timing_traceback
+import threading as _koko_timing_threading
+import functools as _koko_timing_functools
+
+def _koko_timing_get_logger():
+    _koko_timing_os.makedirs("/opt/koko/logs", exist_ok=True)
+    lg = _koko_timing_logging.getLogger("koko_selenium_timing")
+    lg.setLevel(_koko_timing_logging.INFO)
+    lg.propagate = False
+
+    if not any(getattr(h, "_koko_timing_handler", False) for h in lg.handlers):
+        fh = _koko_timing_logging.FileHandler("/opt/koko/logs/selenium_timing.log", encoding="utf-8")
+        fh._koko_timing_handler = True
+        fh.setLevel(_koko_timing_logging.INFO)
+        fh.setFormatter(_koko_timing_logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+        lg.addHandler(fh)
+
+    return lg
+
+_koko_timing_logger = _koko_timing_get_logger()
+
+def _koko_timing_result_brief(result):
+    try:
+        if isinstance(result, dict):
+            return "dict:" + str({k: result.get(k) for k in ("status", "message") if k in result})
+        return str(type(result))
+    except Exception:
+        return "unknown"
+
+def _koko_timing_stack_worker(func_name, thread_ident, start_ts, interval=5, max_seconds=180):
+    """函数执行超过 interval 秒时，每 interval 秒记录当前堆栈位置。"""
+    while True:
+        _koko_timing_time.sleep(interval)
+
+        elapsed = _koko_timing_time.time() - start_ts
+        frame = _koko_timing_sys._current_frames().get(thread_ident)
+
+        if frame is None:
+            return
+
+        stack = _koko_timing_traceback.extract_stack(frame)
+        tail = stack[-10:]
+        stack_text = " -> ".join(
+            f"{_koko_timing_os.path.basename(item.filename)}:{item.lineno}:{item.name}"
+            for item in tail
+        )
+        current_line = tail[-1].line if tail else ""
+
+        _koko_timing_logger.info(
+            "[STACK] %s running %.2fs | current=%s | stack=%s",
+            func_name,
+            elapsed,
+            current_line,
+            stack_text
+        )
+
+        if elapsed >= max_seconds:
+            return
+
+def _koko_wrap_function_timing(func, func_name):
+    if getattr(func, "_koko_timing_wrapped", False):
+        return func
+
+    @_koko_timing_functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        start_ts = _koko_timing_time.time()
+        thread_ident = _koko_timing_threading.get_ident()
+
+        arg_hint = ""
+        try:
+            if func_name == "getcode_record" and args:
+                phone = str(args[0])
+                arg_hint = " phone_tail=" + phone[-4:]
+            elif func_name == "process_user_record" and args:
+                arg_hint = " record_id=" + str(args[0])
+        except Exception:
+            pass
+
+        _koko_timing_logger.info("[START] %s%s", func_name, arg_hint)
+
+        watcher = _koko_timing_threading.Thread(
+            target=_koko_timing_stack_worker,
+            args=(func_name, thread_ident, start_ts),
+            daemon=True
+        )
+        watcher.start()
+
+        try:
+            result = func(*args, **kwargs)
+            _koko_timing_logger.info(
+                "[END] %s total=%.2fs result=%s",
+                func_name,
+                _koko_timing_time.time() - start_ts,
+                _koko_timing_result_brief(result)
+            )
+            return result
+        except Exception:
+            _koko_timing_logger.exception(
+                "[EXCEPTION] %s total=%.2fs",
+                func_name,
+                _koko_timing_time.time() - start_ts
+            )
+            raise
+
+    wrapper._koko_timing_wrapped = True
+    return wrapper
+
+def _koko_wrap_browser_pool_timing():
+    try:
+        bp = globals().get("browser_pool")
+        if not bp or getattr(bp, "_koko_timing_wrapped", False):
+            return
+
+        raw_acquire = bp.acquire
+        raw_release = bp.release
+
+        def acquire_wrapped(*args, **kwargs):
+            t0 = _koko_timing_time.time()
+            try:
+                qsize = bp.pool.qsize()
+            except Exception:
+                qsize = -1
+
+            _koko_timing_logger.info("[POOL] acquire_start qsize=%s args=%s kwargs=%s", qsize, args, kwargs)
+
+            try:
+                driver = raw_acquire(*args, **kwargs)
+                try:
+                    qsize2 = bp.pool.qsize()
+                except Exception:
+                    qsize2 = -1
+
+                _koko_timing_logger.info(
+                    "[POOL] acquire_done cost=%.2fs qsize_after=%s",
+                    _koko_timing_time.time() - t0,
+                    qsize2
+                )
+                return driver
+            except Exception:
+                _koko_timing_logger.exception("[POOL] acquire_failed cost=%.2fs", _koko_timing_time.time() - t0)
+                raise
+
+        def release_wrapped(driver):
+            t0 = _koko_timing_time.time()
+            try:
+                qsize = bp.pool.qsize()
+            except Exception:
+                qsize = -1
+
+            _koko_timing_logger.info("[POOL] release_start qsize=%s", qsize)
+
+            try:
+                result = raw_release(driver)
+                try:
+                    qsize2 = bp.pool.qsize()
+                except Exception:
+                    qsize2 = -1
+
+                _koko_timing_logger.info(
+                    "[POOL] release_done cost=%.2fs qsize_after=%s",
+                    _koko_timing_time.time() - t0,
+                    qsize2
+                )
+                return result
+            except Exception:
+                _koko_timing_logger.exception("[POOL] release_failed cost=%.2fs", _koko_timing_time.time() - t0)
+                raise
+
+        bp.acquire = acquire_wrapped
+        bp.release = release_wrapped
+        bp._koko_timing_wrapped = True
+
+        _koko_timing_logger.info("[INSTALL] browser_pool timing wrapped size=%s qsize=%s", getattr(bp, "size", "?"), bp.pool.qsize())
+
+    except Exception:
+        try:
+            _koko_timing_logger.exception("[INSTALL] browser_pool timing wrap failed")
+        except Exception:
+            pass
+
+def _koko_install_timing_watchdog():
+    try:
+        g = globals()
+
+        if "process_user_record" in g:
+            g["process_user_record"] = _koko_wrap_function_timing(g["process_user_record"], "process_user_record")
+
+        if "getcode_record" in g:
+            g["getcode_record"] = _koko_wrap_function_timing(g["getcode_record"], "getcode_record")
+
+        _koko_wrap_browser_pool_timing()
+
+        _koko_timing_logger.info("[INSTALL] timing watchdog installed")
+
+    except Exception:
+        try:
+            _koko_timing_logger.exception("[INSTALL] timing watchdog install failed")
+        except Exception:
+            pass
+
+_koko_install_timing_watchdog()
+# KOKO_TIMING_WATCHDOG_V1_END
+
 if __name__ == '__main__':
     threading.Thread(target=monitor_browser_pool, daemon=True).start()
     threading.Thread(target=cleanup_temp_user_dirs, args=(browser_pool,), daemon=True).start()

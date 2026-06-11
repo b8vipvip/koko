@@ -166,6 +166,75 @@ from datetime import datetime, timedelta, date
 app = Flask(__name__)
 
 
+
+# KOKO_ADMIN_AGENT_LIST_API_V1_START
+# 后台 kami.html 读取代理归属下拉列表
+from flask import jsonify as _koko_agent_jsonify
+
+@app.get("/admin/agent/list")
+@app.get("/agent_list")
+def koko_admin_agent_list():
+    conn = None
+    cur = None
+    try:
+        if "get_db_connection" in globals():
+            conn = get_db_connection()
+        else:
+            conn = pymysql.connect(**db_config)
+
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT id, agent_code, agent_name
+            FROM agent_account
+            WHERE status = 1
+            ORDER BY id ASC
+        """)
+
+        rows = cur.fetchall()
+        agents = []
+
+        for row in rows:
+            if isinstance(row, dict):
+                agents.append({
+                    "id": row.get("id"),
+                    "agent_code": row.get("agent_code") or "",
+                    "agent_name": row.get("agent_name") or row.get("agent_code") or "",
+                })
+            else:
+                agents.append({
+                    "id": row[0],
+                    "agent_code": row[1] or "",
+                    "agent_name": row[2] or row[1] or "",
+                })
+
+        return _koko_agent_jsonify({
+            "status": "success",
+            "agents": agents
+        })
+
+    except Exception as e:
+        try:
+            print(f"⚠️ /admin/agent/list 查询失败: {e}")
+        except Exception:
+            pass
+
+        return _koko_agent_jsonify({
+            "status": "error",
+            "message": str(e),
+            "agents": []
+        }), 500
+
+    finally:
+        try:
+            if cur:
+                cur.close()
+            if conn:
+                conn.close()
+        except Exception:
+            pass
+# KOKO_ADMIN_AGENT_LIST_API_V1_END
+
 # KOKO_SOURCE_PORTAL_BACKEND_PATCH_V2_START
 # 自动记录：兑换码归属 + 提交入口域名
 # 说明：

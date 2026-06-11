@@ -72,7 +72,7 @@ def ensure_location(path):
             raise SystemExit("Nginx 配置缺少 server 结束括号")
         s = s[:pos] + insert_block + s[pos:]
 
-for path in ["/extract_order", "/extract_order_ids", "/admin/agent/list"]:
+for path in ["/extract_order", "/extract_order_ids"]:
     ensure_location(path)
 
 conf_path.write_text(s, encoding="utf-8")
