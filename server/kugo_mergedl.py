@@ -166,12 +166,20 @@ from datetime import datetime, timedelta, date
 app = Flask(__name__)
 
 
-# KOKO_SOURCE_PORTAL_BACKEND_PATCH_V1_START
+# KOKO_SOURCE_PORTAL_BACKEND_PATCH_V2_START
 # 自动记录：兑换码归属 + 提交入口域名
+# 说明：
+# 1. 兑换码字段只兼容 orderID / order_id / orderid
+# 2. 不使用 redeem_code
+# 3. 不把 yzm 当作兑换码
 import threading as _koko_threading
 import time as _koko_time
+import pymysql as _koko_pymysql
+from flask import request as _koko_request
 
 _KOKO_SOURCE_COLUMNS_CACHE = {}
+_KOKO_ORDER_CODE_COLUMNS = ("orderID", "order_id", "orderid")
+
 
 def koko_portal_from_request(req):
     """根据 Host / Header / JSON / Form 判断提交入口。"""
@@ -189,20 +197,17 @@ def koko_portal_from_request(req):
     except Exception:
         form_data = {}
 
-    header_portal = req.headers.get("X-Submit-Portal", "") or ""
-    header_domain = req.headers.get("X-Submit-Domain", "") or ""
-
     submit_portal = (
         data.get("submit_portal") or
         form_data.get("submit_portal") or
-        header_portal or
+        req.headers.get("X-Submit-Portal", "") or
         ""
     )
 
     submit_domain = (
         data.get("submit_domain") or
         form_data.get("submit_domain") or
-        header_domain or
+        req.headers.get("X-Submit-Domain", "") or
         host
     )
 
@@ -215,11 +220,11 @@ def koko_portal_from_request(req):
     elif not submit_portal:
         submit_portal = "unknown"
 
-    return submit_portal, submit_domain
+    return str(submit_portal or "unknown"), str(submit_domain or host or "")
 
 
 def koko_identity_from_request(req):
-    """从请求中提取手机号和兑换码。兼容 JSON / Form。"""
+    """从请求中提取手机号和兑换码。兑换码只兼容 orderID/order_id/orderid。"""
     data = {}
     try:
         data = req.get_json(silent=True) or {}
@@ -244,18 +249,16 @@ def koko_identity_from_request(req):
         ""
     )
 
-    order_id = (
-        merged.get("order_id") or
-        merged.get("orderID") or
-        merged.get("orderid") or
-        merged.get("redeem_code") or
-        ""
-    )
+    order_code = ""
+    for key in _KOKO_ORDER_CODE_COLUMNS:
+        if merged.get(key):
+            order_code = merged.get(key)
+            break
 
     phone = str(phone or "").strip()
-    order_id = str(order_id or "").strip().lower()
+    order_code = str(order_code or "").strip().lower()
 
-    return phone, order_id
+    return phone, order_code
 
 
 def koko_get_db_connection_for_patch():
@@ -264,13 +267,14 @@ def koko_get_db_connection_for_patch():
         return globals()["get_db_connection"]()
 
     if "db_config" in globals():
-        return pymysql.connect(**globals()["db_config"])
+        return _koko_pymysql.connect(**globals()["db_config"])
 
     raise RuntimeError("未找到 get_db_connection 或 db_config，无法记录来源")
 
 
 def koko_fetchone_dict(cursor):
     row = cursor.fetchone()
+
     if not row:
         return None
 
@@ -282,9 +286,8 @@ def koko_fetchone_dict(cursor):
 
 
 def koko_table_columns(cursor, table):
-    cache_key = table
-    if cache_key in _KOKO_SOURCE_COLUMNS_CACHE:
-        return _KOKO_SOURCE_COLUMNS_CACHE[cache_key]
+    if table in _KOKO_SOURCE_COLUMNS_CACHE:
+        return _KOKO_SOURCE_COLUMNS_CACHE[table]
 
     try:
         cursor.execute(f"SHOW COLUMNS FROM `{table}`")
@@ -298,13 +301,31 @@ def koko_table_columns(cursor, table):
                 cols.add(r[0])
 
         cols.discard(None)
-        _KOKO_SOURCE_COLUMNS_CACHE[cache_key] = cols
+        _KOKO_SOURCE_COLUMNS_CACHE[table] = cols
         return cols
     except Exception:
         return set()
 
 
-def koko_get_order_source(cursor, order_id):
+def koko_pick_order_col(cols):
+    for col in _KOKO_ORDER_CODE_COLUMNS:
+        if col in cols:
+            return col
+    return ""
+
+
+def koko_pick_phone_col(table, cols):
+    if table == "tel_data" and "tel" in cols:
+        return "tel"
+
+    for col in ("phone", "tel", "mobile"):
+        if col in cols:
+            return col
+
+    return ""
+
+
+def koko_get_order_source(cursor, order_code):
     """从 order_id 表读取兑换码归属。"""
     default = {
         "source_type": "retail",
@@ -313,19 +334,29 @@ def koko_get_order_source(cursor, order_id):
         "agent_name": "",
     }
 
-    if not order_id:
+    if not order_code:
         return default
 
     try:
         cols = koko_table_columns(cursor, "order_id")
+        code_col = koko_pick_order_col(cols)
+
+        if not code_col:
+            return default
+
         wanted = ["source_type", "agent_id", "agent_code", "agent_name"]
         select_cols = [c for c in wanted if c in cols]
 
         if not select_cols:
             return default
 
-        sql = "SELECT " + ", ".join(f"`{c}`" for c in select_cols) + " FROM order_id WHERE orderID=%s LIMIT 1"
-        cursor.execute(sql, (order_id,))
+        sql = (
+            "SELECT "
+            + ", ".join(f"`{c}`" for c in select_cols)
+            + f" FROM `order_id` WHERE `{code_col}`=%s LIMIT 1"
+        )
+
+        cursor.execute(sql, (order_code,))
         row = koko_fetchone_dict(cursor)
 
         if not row:
@@ -339,6 +370,7 @@ def koko_get_order_source(cursor, order_id):
             default["source_type"] = "retail"
 
         return default
+
     except Exception as exc:
         try:
             print(f"⚠️ 读取兑换码归属失败: {exc}")
@@ -347,11 +379,21 @@ def koko_get_order_source(cursor, order_id):
         return default
 
 
-def koko_update_table_source(cursor, table, where_sql, where_params, source, submit_portal, submit_domain):
+def koko_update_source_table(cursor, table, phone, order_code, source, submit_portal, submit_domain):
+    """按兑换码优先补写来源，不按手机号批量覆盖旧记录。"""
     cols = koko_table_columns(cursor, table)
+
+    if not cols:
+        return 0
+
+    code_col = koko_pick_order_col(cols)
+
+    if not code_col or not order_code:
+        return 0
+
     update_map = {}
 
-    for k in ["source_type", "agent_id", "agent_code", "agent_name"]:
+    for k in ("source_type", "agent_id", "agent_code", "agent_name"):
         if k in cols:
             update_map[k] = source.get(k)
 
@@ -364,138 +406,131 @@ def koko_update_table_source(cursor, table, where_sql, where_params, source, sub
     if not update_map:
         return 0
 
-    set_sql = ", ".join(f"`{k}`=%s" for k in update_map)
-    params = list(update_map.values()) + list(where_params)
+    where_parts = [f"`{code_col}`=%s"]
+    where_params = [order_code]
 
-    sql = f"UPDATE `{table}` SET {set_sql} WHERE {where_sql}"
+    phone_col = koko_pick_phone_col(table, cols)
+
+    if phone and phone_col:
+        where_parts.append(f"`{phone_col}`=%s")
+        where_params.append(phone)
+
+    set_sql = ", ".join(f"`{k}`=%s" for k in update_map)
+    where_sql = " AND ".join(where_parts)
+
+    order_limit = ""
+    if "id" in cols:
+        order_limit = " ORDER BY `id` DESC LIMIT 3"
+    else:
+        order_limit = " LIMIT 3"
+
+    sql = f"UPDATE `{table}` SET {set_sql} WHERE {where_sql}{order_limit}"
+    params = list(update_map.values()) + where_params
+
     cursor.execute(sql, params)
     return cursor.rowcount
 
 
-def koko_annotate_source_once(phone, order_id, submit_portal, submit_domain):
-    """给最近相关记录补写来源。"""
-    if not phone and not order_id:
+def koko_annotate_source_once(phone, order_code, submit_portal, submit_domain):
+    """给最近相关记录补写来源。带死锁重试。"""
+    if not order_code:
         return
 
-    conn = None
-    cur = None
-
-    try:
-        conn = koko_get_db_connection_for_patch()
-        cur = conn.cursor()
-
-        source = koko_get_order_source(cur, order_id)
-
-        total = 0
-
-        if order_id:
-            # user_data
-            user_cols = koko_table_columns(cur, "user_data")
-            if "order_id" in user_cols:
-                total += koko_update_table_source(
-                    cur,
-                    "user_data",
-                    "order_id=%s ORDER BY id DESC LIMIT 3",
-                    (order_id,),
-                    source,
-                    submit_portal,
-                    submit_domain
-                )
-
-            # tel_data
-            tel_cols = koko_table_columns(cur, "tel_data")
-            if "orderID" in tel_cols:
-                total += koko_update_table_source(
-                    cur,
-                    "tel_data",
-                    "orderID=%s ORDER BY id DESC LIMIT 3",
-                    (order_id,),
-                    source,
-                    submit_portal,
-                    submit_domain
-                )
-
-            # submissions
-            sub_cols = koko_table_columns(cur, "submissions")
-            if "order_id" in sub_cols:
-                total += koko_update_table_source(
-                    cur,
-                    "submissions",
-                    "order_id=%s ORDER BY id DESC LIMIT 3",
-                    (order_id,),
-                    source,
-                    submit_portal,
-                    submit_domain
-                )
-
-        # 有时验证码流程先有手机号，orderID 后写；兜底按手机号更新最近记录
-        if phone:
-            user_cols = koko_table_columns(cur, "user_data")
-            if "phone" in user_cols:
-                total += koko_update_table_source(
-                    cur,
-                    "user_data",
-                    "phone=%s ORDER BY id DESC LIMIT 3",
-                    (phone,),
-                    source,
-                    submit_portal,
-                    submit_domain
-                )
-
-            tel_cols = koko_table_columns(cur, "tel_data")
-            if "tel" in tel_cols:
-                total += koko_update_table_source(
-                    cur,
-                    "tel_data",
-                    "tel=%s ORDER BY id DESC LIMIT 3",
-                    (phone,),
-                    source,
-                    submit_portal,
-                    submit_domain
-                )
-
-        conn.commit()
+    for attempt in range(1, 4):
+        conn = None
+        cur = None
 
         try:
-            print(
-                f"✅ 来源记录完成 rows={total} phone_tail={phone[-4:] if phone else ''} "
-                f"order_tail={order_id[-6:] if order_id else ''} portal={submit_portal} "
-                f"source_type={source.get('source_type')} agent={source.get('agent_code')}"
-            )
-        except Exception:
-            pass
+            conn = koko_get_db_connection_for_patch()
+            cur = conn.cursor()
 
-    except Exception as exc:
-        if conn:
+            source = koko_get_order_source(cur, order_code)
+
+            total = 0
+            for table in ("user_data", "tel_data", "submissions"):
+                total += koko_update_source_table(
+                    cur,
+                    table,
+                    phone,
+                    order_code,
+                    source,
+                    submit_portal,
+                    submit_domain,
+                )
+
+            conn.commit()
+
             try:
-                conn.rollback()
+                print(
+                    f"✅ 来源记录完成 rows={total} "
+                    f"phone_tail={phone[-4:] if phone else ''} "
+                    f"order_tail={order_code[-6:] if order_code else ''} "
+                    f"portal={submit_portal} "
+                    f"source_type={source.get('source_type')} "
+                    f"agent={source.get('agent_code')}"
+                )
             except Exception:
                 pass
-        try:
-            print(f"⚠️ 来源记录失败: {exc}")
-        except Exception:
-            pass
-    finally:
-        try:
-            if cur:
-                cur.close()
+
+            return
+
+        except _koko_pymysql.err.OperationalError as exc:
+            code = exc.args[0] if exc.args else None
+
             if conn:
-                conn.close()
-        except Exception:
-            pass
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+
+            if code in (1205, 1213) and attempt < 3:
+                try:
+                    print(f"⚠️ 来源记录遇到锁冲突 code={code}，第 {attempt} 次重试")
+                except Exception:
+                    pass
+                _koko_time.sleep(0.5 * attempt)
+                continue
+
+            try:
+                print(f"⚠️ 来源记录失败: {exc}")
+            except Exception:
+                pass
+            return
+
+        except Exception as exc:
+            if conn:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+
+            try:
+                print(f"⚠️ 来源记录失败: {exc}")
+            except Exception:
+                pass
+            return
+
+        finally:
+            try:
+                if cur:
+                    cur.close()
+                if conn:
+                    conn.close()
+            except Exception:
+                pass
 
 
-def koko_annotate_source_delayed(phone, order_id, submit_portal, submit_domain):
+def koko_annotate_source_delayed(phone, order_code, submit_portal, submit_domain):
     """兼容异步写 tel_data/user_data：多次延迟补写。"""
     for delay in (1, 3, 8):
         _koko_time.sleep(delay)
-        koko_annotate_source_once(phone, order_id, submit_portal, submit_domain)
+        koko_annotate_source_once(phone, order_code, submit_portal, submit_domain)
 
 
 @app.after_request
 def koko_source_portal_after_request(response):
     try:
-        path = request.path or ""
+        path = _koko_request.path or ""
 
         interested = (
             path in ("/submit", "/sfyzm", "/api") or
@@ -507,14 +542,14 @@ def koko_source_portal_after_request(response):
         if not interested:
             return response
 
-        phone, order_id = koko_identity_from_request(request)
-        submit_portal, submit_domain = koko_portal_from_request(request)
+        phone, order_code = koko_identity_from_request(_koko_request)
+        submit_portal, submit_domain = koko_portal_from_request(_koko_request)
 
-        if phone or order_id:
+        if order_code:
             _koko_threading.Thread(
                 target=koko_annotate_source_delayed,
-                args=(phone, order_id, submit_portal, submit_domain),
-                daemon=True
+                args=(phone, order_code, submit_portal, submit_domain),
+                daemon=True,
             ).start()
 
     except Exception as exc:
@@ -524,7 +559,7 @@ def koko_source_portal_after_request(response):
             pass
 
     return response
-# KOKO_SOURCE_PORTAL_BACKEND_PATCH_V1_END
+# KOKO_SOURCE_PORTAL_BACKEND_PATCH_V2_END
 
 CORS(
     app,
