@@ -2,6 +2,228 @@
 <html lang="en">
 
 <head>
+
+<!-- KOKO_SYSTEM_SETTINGS_OVERRIDE_V8_START -->
+<script>
+(function () {
+  if (window.__KOKO_SYSTEM_SETTINGS_OVERRIDE_V8__) return;
+  window.__KOKO_SYSTEM_SETTINGS_OVERRIDE_V8__ = true;
+
+  function toBool(v) {
+    return String(v) === '1' || v === 1 || v === true || String(v).toLowerCase() === 'true';
+  }
+
+  function getSetting(json, key, defVal) {
+    json = json || {};
+    var data = json.data || json.settings || json;
+
+    if (data && Object.prototype.hasOwnProperty.call(data, key)) {
+      return data[key];
+    }
+
+    if (json && Object.prototype.hasOwnProperty.call(json, key)) {
+      return json[key];
+    }
+
+    return defVal;
+  }
+
+  async function readJsonSafe(url, options) {
+    var res = await fetch(url, options || { credentials: 'same-origin' });
+    var text = await res.text();
+
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      throw new Error('接口返回非 JSON：' + text.slice(0, 120));
+    }
+  }
+
+  async function loadSettings() {
+    try {
+      return await readJsonSafe('/phpapi/system_settings.php', { credentials: 'same-origin' });
+    } catch (e) {
+      console.warn('[KOKO_SYSTEM_SETTINGS_OVERRIDE_V8] load failed:', e);
+      return {
+        success: true,
+        notify_backend_error: 1,
+        notify_device_offline: 1,
+        notify_new_recharge_task: 1
+      };
+    }
+  }
+
+  async function saveSettings(payload) {
+    async function postJson() {
+      return await readJsonSafe('/phpapi/system_settings.php', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    }
+
+    async function postForm() {
+      var body = new URLSearchParams();
+      Object.keys(payload).forEach(function (k) {
+        body.append(k, payload[k]);
+      });
+
+      return await readJsonSafe('/phpapi/system_settings.php', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString()
+      });
+    }
+
+    try {
+      var json = await postJson();
+      if (json && (json.success || json.status === 'success')) return json;
+      return json;
+    } catch (e) {
+      return await postForm();
+    }
+  }
+
+  function rowHtml(id, title, desc, checked) {
+    return ''
+      + '<div class="koko-setting-row" style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid #f0f0f0;">'
+      + '  <div style="flex:1;min-width:0;">'
+      + '    <div style="font-weight:600;color:#222;font-size:14px;">' + title + '</div>'
+      + '    <div style="font-size:12px;color:#888;line-height:1.5;margin-top:4px;">' + desc + '</div>'
+      + '  </div>'
+      + '  <label style="display:flex;align-items:center;gap:6px;white-space:nowrap;font-size:13px;color:#333;">'
+      + '    <input id="' + id + '" type="checkbox" ' + (checked ? 'checked' : '') + '>'
+      + '    开启'
+      + '  </label>'
+      + '</div>';
+  }
+
+  function openSettingsModal(settings) {
+    var backendError = toBool(getSetting(settings, 'notify_backend_error', 1));
+    var deviceOffline = toBool(getSetting(settings, 'notify_device_offline', 1));
+    var newRecharge = toBool(getSetting(settings, 'notify_new_recharge_task', 1));
+
+    var html = ''
+      + '<div id="koko-system-settings-v8" style="padding:14px 18px 4px;background:#fff;box-sizing:border-box;">'
+      + rowHtml('kokoNotifyBackendError', '后端错误邮件通知', '后端接口、任务或系统异常时发送邮件提醒。', backendError)
+      + rowHtml('kokoNotifyDeviceOffline', '设备离线邮件通知', '检测到设备掉线、异常不可用时发送邮件提醒。', deviceOffline)
+      + rowHtml('kokoNotifyNewRechargeTask', '新充值任务邮件通知', '收到新的充值任务或待处理任务时发送邮件提醒。', newRecharge)
+      + '<div style="font-size:12px;color:#999;line-height:1.6;margin-top:12px;">兑换链接已移动到 ka.k2n.cn/kami.html 页面中配置，这里不再显示兑换链接。</div>'
+      + '</div>';
+
+    if (!window.layer || !layer.open) {
+      alert('系统配置弹窗组件未加载');
+      return;
+    }
+
+    layer.open({
+      type: 1,
+      title: '系统配置',
+      area: ['min(92vw, 620px)', 'auto'],
+      content: html,
+      btn: ['保存', '取消'],
+      yes: async function (index) {
+        var payload = {
+          notify_backend_error: document.getElementById('kokoNotifyBackendError').checked ? 1 : 0,
+          notify_device_offline: document.getElementById('kokoNotifyDeviceOffline').checked ? 1 : 0,
+          notify_new_recharge_task: document.getElementById('kokoNotifyNewRechargeTask').checked ? 1 : 0
+        };
+
+        try {
+          var json = await saveSettings(payload);
+
+          if (json && json.success === false) {
+            throw new Error(json.message || json.error || '保存失败');
+          }
+
+          layer.msg('系统配置保存成功');
+          layer.close(index);
+        } catch (e) {
+          layer.alert('保存失败：' + e.message);
+        }
+      }
+    });
+  }
+
+  async function handleSystemConfigClick(e) {
+    var target = e.target;
+    if (!target) return;
+
+    var node = target.closest ? target.closest('button,a,input,span,div') : target;
+    if (!node) return;
+
+    var text = (node.innerText || node.value || node.textContent || '').trim();
+
+    var isSystemButton =
+      text === '系统配置' ||
+      node.id === 'systemSettingsBtn' ||
+      node.id === 'system_settings_btn' ||
+      node.classList && (
+        node.classList.contains('system-settings-btn') ||
+        node.classList.contains('settings-btn')
+      );
+
+    if (!isSystemButton) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+
+    try {
+      var settings = await loadSettings();
+      openSettingsModal(settings);
+    } catch (err) {
+      if (window.layer && layer.alert) {
+        layer.alert('打开系统配置失败：' + err.message);
+      } else {
+        alert('打开系统配置失败：' + err.message);
+      }
+    }
+  }
+
+  // 用捕获阶段拦截，阻止旧系统配置 click 逻辑继续执行
+  document.addEventListener('click', handleSystemConfigClick, true);
+
+  console.log('[KOKO_SYSTEM_SETTINGS_OVERRIDE_V8] installed');
+})();
+</script>
+<!-- KOKO_SYSTEM_SETTINGS_OVERRIDE_V8_END -->
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<script>
+(function(){
+  function ensureSettingRedeemUrl(){
+    if (!document.getElementById('settingRedeemUrl')) {
+      var i=document.createElement('input');
+      i.id='settingRedeemUrl';
+      i.type='hidden';
+      i.value='';
+      i.style.display='none';
+      document.documentElement.appendChild(i);
+    }
+  }
+  ensureSettingRedeemUrl();
+  document.addEventListener('DOMContentLoaded', ensureSettingRedeemUrl);
+})();
+</script>
+
   <meta charset="UTF-8">
 
   <title>admin</title>
@@ -349,7 +571,8 @@
 </style>
 
 <body>
-  <div class="myBox">
+
+<div class="myBox">
     <div id="videoBox">
       <video id="video" width="100%" height="100%" autoplay="" playsinline muted></video>
       <div class="v_tips">手动充值管理</div>
@@ -613,12 +836,8 @@
 
     function settingsSwitchHtml(id, label) {
       return `
-        <div class="layui-form-item">
-          <label class="layui-form-label">${label}</label>
-          <div class="layui-input-block">
-            <input type="checkbox" id="${id}" title="开启邮件通知">
-          </div>
-        </div>`;
+        
+`;
     }
 
     async function openSystemSettings() {
@@ -631,12 +850,6 @@
         const settings = result.settings || {};
         const content = `
           <div class="layui-form system-settings-form">
-            <div class="layui-form-item">
-              <label class="layui-form-label" for="settingRedeemUrl">兑换链接</label>
-              <div class="layui-input-block">
-                <input id="settingRedeemUrl" type="url" class="layui-input" placeholder="请输入 HTTP/HTTPS 兑换链接">
-              </div>
-            </div>
             ${settingsSwitchHtml('settingNotifyDeviceOffline', '设备离线通知')}
             ${settingsSwitchHtml('settingNotifyNewTask', '新充值任务通知')}
             ${settingsSwitchHtml('settingNotifyBackendError', '后端运行报错通知')}
@@ -649,7 +862,7 @@
           content,
           btn: ['保存', '取消'],
           success: function () {
-            document.getElementById('settingRedeemUrl').value = settings.redeem_url || '';
+            document.getElementById('').value = settings.redeem_url || '';
             document.getElementById('settingNotifyDeviceOffline').checked = settings.notify_device_offline === '1';
             document.getElementById('settingNotifyNewTask').checked = settings.notify_new_recharge_task === '1';
             document.getElementById('settingNotifyBackendError').checked = settings.notify_backend_error === '1';
@@ -657,7 +870,7 @@
           },
           yes: async function (index) {
             const payload = {
-              redeem_url: document.getElementById('settingRedeemUrl').value.trim(),
+              redeem_url: document.getElementById('').value.trim(),
               notify_device_offline: document.getElementById('settingNotifyDeviceOffline').checked ? 1 : 0,
               notify_new_recharge_task: document.getElementById('settingNotifyNewTask').checked ? 1 : 0,
               notify_backend_error: document.getElementById('settingNotifyBackendError').checked ? 1 : 0
@@ -1374,5 +1587,6 @@ document.addEventListener('DOMContentLoaded', () => {
 })();
 </script>
 
+<input id="" type="hidden" value="" style="display:none;">
 </body>
 </html>

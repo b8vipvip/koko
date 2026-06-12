@@ -1,6 +1,151 @@
 <!DOCTYPE html>
 <html lang="zh">
 <head>
+
+<!-- KOKO_KAMI_REDEEM_URL_EARLY_COMPAT_V5_START -->
+<script>
+(function () {
+  if (window.__KOKO_KAMI_REDEEM_URL_EARLY_COMPAT_V5__) return;
+  window.__KOKO_KAMI_REDEEM_URL_EARLY_COMPAT_V5__ = true;
+
+  var DEFAULT_RETAIL_URL = 'https://cn12.vip';
+  var DEFAULT_AGENT_URL = 'https://vip.ka8.shop';
+
+  function findOwnershipSelect() {
+    var ids = ['code_ownership', 'ownership', 'source_type', 'agent_code', 'agent_select', 'agentCode', 'extract_ownership'];
+    for (var i = 0; i < ids.length; i++) {
+      var el = document.getElementById(ids[i]);
+      if (el && el.tagName && el.tagName.toLowerCase() === 'select') return el;
+    }
+
+    var selects = document.querySelectorAll('select');
+    for (var j = 0; j < selects.length; j++) {
+      var txt = selects[j].innerText || '';
+      if (txt.indexOf('普通用户') !== -1 || txt.indexOf('代理') !== -1) return selects[j];
+    }
+    return null;
+  }
+
+  function isAgentSelected() {
+    var el = findOwnershipSelect();
+    if (!el) return false;
+
+    var value = String(el.value || '').trim();
+    var text = '';
+
+    try {
+      text = String(el.options[el.selectedIndex] ? el.options[el.selectedIndex].text : '').trim();
+    } catch (e) {}
+
+    if (!value) return false;
+    if (value === 'retail' || value === '普通用户') return false;
+    if (text === '普通用户') return false;
+
+    return true;
+  }
+
+  function buildCompatJson(json) {
+    json = json || {};
+
+    var defaults = json.defaults || {};
+
+    var retail = String(
+      json.retail_exchange_url ||
+      defaults.retail_exchange_url ||
+      json.redeem_url ||
+      DEFAULT_RETAIL_URL
+    ).trim();
+
+    var agent = String(
+      json.agent_exchange_url ||
+      defaults.agent_exchange_url ||
+      DEFAULT_AGENT_URL
+    ).trim();
+
+    var current = isAgentSelected() ? agent : retail;
+
+    json.success = json.success !== false;
+    json.status = json.status || 'success';
+    json.retail_exchange_url = retail;
+    json.agent_exchange_url = agent;
+
+    // 兼容旧代码
+    json.redeem_url = current;
+
+    json.data = Object.assign({}, json.data || {}, {
+      redeem_url: current,
+      retail_exchange_url: retail,
+      agent_exchange_url: agent
+    });
+
+    json.settings = Object.assign({}, json.settings || {}, {
+      redeem_url: current,
+      retail_exchange_url: retail,
+      agent_exchange_url: agent
+    });
+
+    window.KOKO_EXCHANGE_LINK_CONFIG = json;
+    window.KOKO_CURRENT_EXCHANGE_URL = current;
+
+    return json;
+  }
+
+  function responseFromJson(json) {
+    return new Response(JSON.stringify(json), {
+      status: 200,
+      headers: {'Content-Type': 'application/json'}
+    });
+  }
+
+  if (window.fetch && !window.fetch.__kokoRedeemCompatV5) {
+    var rawFetch = window.fetch;
+
+    window.fetch = function (input, init) {
+      var url = typeof input === 'string' ? input : ((input && input.url) || '');
+      var method = (init && init.method ? String(init.method) : 'GET').toUpperCase();
+
+      // 旧代码请求 system_settings.php 或新代码请求 exchange_link_config 时，都返回兼容结构
+      if (
+        method === 'GET' &&
+        (
+          String(url).indexOf('/phpapi/system_settings.php') !== -1 ||
+          String(url).indexOf('/exchange_link_config') !== -1
+        )
+      ) {
+        return rawFetch('/exchange_link_config', {credentials: 'same-origin'})
+          .then(function (res) { return res.text(); })
+          .then(function (text) {
+            var json = {};
+            try {
+              json = JSON.parse(text);
+            } catch (e) {
+              json = {};
+            }
+            return responseFromJson(buildCompatJson(json));
+          });
+      }
+
+      return rawFetch.apply(this, arguments);
+    };
+
+    window.fetch.__kokoRedeemCompatV5 = true;
+    console.log('[KOKO_REDEEM_COMPAT_V5] early fetch patched');
+  }
+
+  // 提供一个全局安全读取函数，后续脚本也可以使用
+  window.kokoGetCurrentExchangeUrl = function () {
+    var cfg = window.KOKO_EXCHANGE_LINK_CONFIG || {};
+    return isAgentSelected()
+      ? (cfg.agent_exchange_url || DEFAULT_AGENT_URL)
+      : (cfg.retail_exchange_url || DEFAULT_RETAIL_URL);
+  };
+})();
+</script>
+<!-- KOKO_KAMI_REDEEM_URL_EARLY_COMPAT_V5_END -->
+
+
+
+
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>添加与查询卡密</title>
@@ -342,5 +487,436 @@ async function showCopyDialog(orderIDs) {
 });
 </script>
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- KOKO_KAMI_EXCHANGE_LINK_FINAL_V4_START -->
+<style>
+  #koko_exchange_link_auto_wrap {
+    margin: 10px 0;
+    padding: 10px;
+    border: 1px solid #eee;
+    border-radius: 6px;
+    background: #fafafa;
+    box-sizing: border-box;
+  }
+
+  #koko_exchange_link_edit_row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  #koko_exchange_link_auto {
+    flex: 1 1 auto;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+  }
+
+  #koko_exchange_link_save_btn {
+    flex: 0 0 auto;
+    padding: 8px 12px;
+    border: none;
+    border-radius: 4px;
+    background: #1677ff;
+    color: #fff;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  #koko_exchange_link_save_msg {
+    display: block;
+    margin-top: 6px;
+    font-size: 12px;
+    color: #666;
+  }
+</style>
+
+<script>
+(function () {
+  if (window.__KOKO_KAMI_EXCHANGE_LINK_FINAL_V4__) return;
+  window.__KOKO_KAMI_EXCHANGE_LINK_FINAL_V4__ = true;
+
+  var DEFAULT_RETAIL_URL = 'https://cn12.vip';
+  var DEFAULT_AGENT_URL = 'https://vip.ka8.shop';
+
+  var config = {
+    retail_exchange_url: DEFAULT_RETAIL_URL,
+    agent_exchange_url: DEFAULT_AGENT_URL
+  };
+
+  function cleanUrl(v, fallback) {
+    v = String(v || '').trim();
+    return v || fallback;
+  }
+
+  function trimSlash(v) {
+    return String(v || '').trim().replace(/\/+$/, '');
+  }
+
+  function validUrl(v) {
+    return /^https?:\/\/[A-Za-z0-9.-]+(?::\d+)?(?:\/.*)?$/.test(String(v || '').trim());
+  }
+
+  function msg(text, color) {
+    var el = document.getElementById('koko_exchange_link_save_msg');
+    if (el) {
+      el.textContent = text || '';
+      el.style.color = color || '#666';
+    }
+  }
+
+  function findOwnershipSelect() {
+    var ids = [
+      'code_ownership',
+      'ownership',
+      'source_type',
+      'agent_code',
+      'agent_select',
+      'agentCode',
+      'extract_ownership'
+    ];
+
+    for (var i = 0; i < ids.length; i++) {
+      var el = document.getElementById(ids[i]);
+      if (el && el.tagName && el.tagName.toLowerCase() === 'select') return el;
+    }
+
+    var selects = document.querySelectorAll('select');
+    for (var j = 0; j < selects.length; j++) {
+      var txt = selects[j].innerText || '';
+      if (txt.indexOf('普通用户') !== -1 || txt.indexOf('代理') !== -1) return selects[j];
+    }
+
+    return null;
+  }
+
+  function isAgentSelected() {
+    var el = findOwnershipSelect();
+    if (!el) return false;
+
+    var value = String(el.value || '').trim();
+    var text = '';
+    try {
+      text = String(el.options[el.selectedIndex] ? el.options[el.selectedIndex].text : '').trim();
+    } catch (e) {}
+
+    if (!value) return false;
+    if (value === 'retail' || value === '普通用户') return false;
+    if (text === '普通用户') return false;
+
+    return true;
+  }
+
+  function currentKey() {
+    return isAgentSelected() ? 'agent_exchange_url' : 'retail_exchange_url';
+  }
+
+  function currentDefaultUrl() {
+    return isAgentSelected() ? DEFAULT_AGENT_URL : DEFAULT_RETAIL_URL;
+  }
+
+  function currentUrl() {
+    return trimSlash(cleanUrl(config[currentKey()], currentDefaultUrl()));
+  }
+
+  function findExchangeInput() {
+    var el = document.getElementById('koko_exchange_link_auto');
+    if (el) return el;
+
+    var ids = ['exchange_link', 'exchange_url', 'redeem_link', 'redeem_url', 'link_url', 'copy_link'];
+    for (var i = 0; i < ids.length; i++) {
+      var x = document.getElementById(ids[i]);
+      if (x && ('value' in x)) return x;
+    }
+
+    return null;
+  }
+
+  function ensureExchangeInput() {
+    var input = findExchangeInput();
+
+    if (!input) {
+      var own = findOwnershipSelect();
+      var wrap = document.createElement('div');
+      wrap.id = 'koko_exchange_link_auto_wrap';
+      wrap.innerHTML = ''
+        + '<label style="display:block;margin-bottom:6px;font-weight:600;">兑换链接</label>'
+        + '<div id="koko_exchange_link_edit_row">'
+        + '<input id="koko_exchange_link_auto">'
+        + '<button id="koko_exchange_link_save_btn" type="button">保存</button>'
+        + '</div>'
+        + '<span id="koko_exchange_link_save_msg"></span>';
+
+      if (own && own.parentNode) {
+        own.parentNode.insertAdjacentElement('afterend', wrap);
+      } else {
+        document.body.insertBefore(wrap, document.body.firstChild);
+      }
+
+      return document.getElementById('koko_exchange_link_auto');
+    }
+
+    input.id = 'koko_exchange_link_auto';
+    input.removeAttribute('readonly');
+    input.readOnly = false;
+
+    if (!document.getElementById('koko_exchange_link_save_btn')) {
+      var row = document.createElement('div');
+      row.id = 'koko_exchange_link_edit_row';
+
+      input.parentNode.insertBefore(row, input);
+      row.appendChild(input);
+
+      var btn = document.createElement('button');
+      btn.id = 'koko_exchange_link_save_btn';
+      btn.type = 'button';
+      btn.textContent = '保存';
+      row.appendChild(btn);
+
+      var msgEl = document.createElement('span');
+      msgEl.id = 'koko_exchange_link_save_msg';
+      row.insertAdjacentElement('afterend', msgEl);
+    }
+
+    return input;
+  }
+
+  function applyInputValue(force) {
+    var input = ensureExchangeInput();
+    if (!input) return;
+
+    var key = currentKey();
+    var url = currentUrl();
+
+    window.KOKO_CURRENT_EXCHANGE_URL = url;
+
+    if (force || input.getAttribute('data-koko-current-key') !== key) {
+      input.value = url;
+      input.setAttribute('data-koko-current-key', key);
+    }
+
+    msg(key === 'agent_exchange_url' ? '当前保存代理兑换链接' : '当前保存普通用户兑换链接', '#666');
+    replaceOldRedeemLinks();
+    console.log('[KOKO_KAMI_EXCHANGE_FINAL_V4] key=' + key + ', url=' + url);
+  }
+
+  function loadConfig() {
+    fetch('/exchange_link_config', {credentials: 'same-origin'})
+      .then(function (res) { return res.text(); })
+      .then(function (text) {
+        var json = {};
+        try {
+          json = JSON.parse(text);
+        } catch (e) {
+          throw new Error('读取配置接口返回非 JSON：' + text.slice(0, 120));
+        }
+
+        config.retail_exchange_url = cleanUrl(json.retail_exchange_url, DEFAULT_RETAIL_URL);
+        config.agent_exchange_url = cleanUrl(json.agent_exchange_url, DEFAULT_AGENT_URL);
+        applyInputValue(true);
+      })
+      .catch(function (err) {
+        console.warn('[KOKO_KAMI_EXCHANGE_FINAL_V4] load config failed', err);
+        applyInputValue(true);
+      });
+  }
+
+  function saveCurrent() {
+    var input = ensureExchangeInput();
+    var value = trimSlash(input && input.value || '');
+
+    if (!validUrl(value)) {
+      msg('保存失败：兑换链接必须以 http:// 或 https:// 开头', '#ff4d4f');
+      return;
+    }
+
+    var key = currentKey();
+    var payload = {};
+    payload[key] = value;
+
+    msg('保存中...', '#666');
+
+    fetch('/admin/exchange_link_config', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    })
+    .then(function (res) {
+      return res.text().then(function (text) {
+        var json = {};
+        try {
+          json = JSON.parse(text);
+        } catch (e) {
+          throw new Error('接口返回非 JSON：' + text.slice(0, 120));
+        }
+
+        if (!res.ok || !(json.success || json.status === 'success')) {
+          throw new Error(json.message || json.error || ('HTTP ' + res.status));
+        }
+
+        return json;
+      });
+    })
+    .then(function (json) {
+      config.retail_exchange_url = cleanUrl(json.retail_exchange_url, config.retail_exchange_url);
+      config.agent_exchange_url = cleanUrl(json.agent_exchange_url, config.agent_exchange_url);
+
+      applyInputValue(true);
+      msg('保存成功', '#52c41a');
+
+      if (window.layer && layer.msg) layer.msg('兑换链接保存成功');
+    })
+    .catch(function (err) {
+      msg('保存失败：' + err.message, '#ff4d4f');
+      if (window.layer && layer.alert) layer.alert('保存失败：' + err.message);
+    });
+  }
+
+  function replaceBase(str) {
+    var url = currentUrl();
+
+    return String(str || '')
+      .replace(/https?:\/\/ka\.k2n\.cn\/usrvip\/?/gi, url)
+      .replace(/https?:\/\/ka\.k2n\.cn\/?usrvip\/?/gi, url);
+  }
+
+  function replaceOldRedeemLinks() {
+    var input = document.getElementById('koko_exchange_link_auto');
+
+    document.querySelectorAll('a[href]').forEach(function (a) {
+      var oldHref = a.getAttribute('href') || '';
+      var newHref = replaceBase(oldHref);
+      if (newHref !== oldHref) a.setAttribute('href', newHref);
+
+      var oldText = a.textContent || '';
+      var newText = replaceBase(oldText);
+      if (newText !== oldText) a.textContent = newText;
+    });
+
+    document.querySelectorAll('input, textarea').forEach(function (el) {
+      if (el === input) return;
+      var oldVal = el.value || '';
+      var newVal = replaceBase(oldVal);
+      if (newVal !== oldVal) el.value = newVal;
+    });
+
+    var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+    var nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+
+    nodes.forEach(function (node) {
+      var oldText = node.nodeValue || '';
+      if (oldText.indexOf('ka.k2n.cn/usrvip') === -1) return;
+      node.nodeValue = replaceBase(oldText);
+    });
+  }
+
+  function patchFetchForOldSystemSettings() {
+    if (!window.fetch || window.fetch.__kokoExchangeFinalV4Patched) return;
+
+    var rawFetch = window.fetch;
+
+    window.fetch = function (input, init) {
+      var url = typeof input === 'string' ? input : (input && input.url) || '';
+
+      if (String(url).indexOf('/phpapi/system_settings.php') !== -1 && (!init || !init.method || String(init.method).toUpperCase() === 'GET')) {
+        return rawFetch('/exchange_link_config', {credentials: 'same-origin'})
+          .then(function (res) { return res.text(); })
+          .then(function (text) {
+            var json = {};
+            try {
+              json = JSON.parse(text);
+            } catch (e) {
+              json = {};
+            }
+
+            config.retail_exchange_url = cleanUrl(json.retail_exchange_url, DEFAULT_RETAIL_URL);
+            config.agent_exchange_url = cleanUrl(json.agent_exchange_url, DEFAULT_AGENT_URL);
+
+            var merged = Object.assign({}, json, {
+              redeem_url: currentUrl(),
+              retail_exchange_url: config.retail_exchange_url,
+              agent_exchange_url: config.agent_exchange_url
+            });
+
+            return new Response(JSON.stringify(merged), {
+              status: 200,
+              headers: {'Content-Type': 'application/json'}
+            });
+          });
+      }
+
+      return rawFetch.apply(this, arguments).then(function (res) {
+        try {
+          if (String(url).indexOf('/extract_order') !== -1) {
+            setTimeout(replaceOldRedeemLinks, 100);
+            setTimeout(replaceOldRedeemLinks, 500);
+            setTimeout(replaceOldRedeemLinks, 1200);
+          }
+        } catch (e) {}
+        return res;
+      });
+    };
+
+    window.fetch.__kokoExchangeFinalV4Patched = true;
+  }
+
+  function bindEvents() {
+    var own = findOwnershipSelect();
+    if (own && !own.__kokoExchangeFinalV4Bound) {
+      own.addEventListener('change', function () {
+        applyInputValue(true);
+      });
+      own.__kokoExchangeFinalV4Bound = true;
+    }
+
+    var btn = document.getElementById('koko_exchange_link_save_btn');
+    if (btn && !btn.__kokoExchangeFinalV4Bound) {
+      btn.addEventListener('click', saveCurrent);
+      btn.__kokoExchangeFinalV4Bound = true;
+    }
+  }
+
+  function boot() {
+    patchFetchForOldSystemSettings();
+    ensureExchangeInput();
+    bindEvents();
+    replaceOldRedeemLinks();
+  }
+
+  boot();
+  loadConfig();
+
+  var observer = new MutationObserver(function () {
+    boot();
+  });
+
+  observer.observe(document.documentElement || document.body, {childList: true, subtree: true});
+
+  setInterval(replaceOldRedeemLinks, 1500);
+
+  setTimeout(boot, 300);
+  setTimeout(boot, 1000);
+})();
+</script>
+<!-- KOKO_KAMI_EXCHANGE_LINK_FINAL_V4_END -->
 
 </body>
