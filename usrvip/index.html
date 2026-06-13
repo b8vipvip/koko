@@ -3364,5 +3364,183 @@ function copyUserID(userid) {
 </script>
 <!-- KOKO_RECHARGE_PROGRESS_WIDTH_V5_END -->
 
+
+<!-- KOKO_SHORT_M_URL_AUTOFILL_V1_START -->
+<script>
+(function () {
+  function getCodeFromUrl() {
+    var params = new URLSearchParams(window.location.search || '');
+
+    // M 是正式短参数；其他参数只做兼容旧链接
+    return params.get('M')
+      || params.get('m')
+      || params.get('orderID')
+      || params.get('order_id')
+      || '';
+  }
+
+  function findCodeInput() {
+    var selectors = [
+      '#orderID',
+      '#orderId',
+      '#order_id',
+      '#orderid',
+      '#order',
+      '#dhm',
+      '#kami',
+      '#code',
+      'input[name="orderID"]',
+      'input[name="orderId"]',
+      'input[name="order_id"]',
+      'input[name="orderid"]',
+      'input[placeholder*="兑换码"]',
+      'input[placeholder*="订单号"]',
+      'input[placeholder*="卡密"]'
+    ];
+
+    for (var i = 0; i < selectors.length; i++) {
+      var el = document.querySelector(selectors[i]);
+      if (el) return el;
+    }
+
+    return null;
+  }
+
+  function fill() {
+    var code = getCodeFromUrl();
+    if (!code) return;
+
+    var input = findCodeInput();
+    if (!input) return;
+
+    if (!input.value) {
+      input.value = code;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      console.log('[KOKO_SHORT_M_URL_AUTOFILL] 已自动填入 M:', code);
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', fill);
+  } else {
+    fill();
+  }
+
+  setTimeout(fill, 300);
+  setTimeout(fill, 1000);
+  setTimeout(fill, 2000);
+})();
+</script>
+<!-- KOKO_SHORT_M_URL_AUTOFILL_V1_END -->
+
+
+<!-- KOKO_M_PARAM_ORDER_READONLY_V1_START -->
+<script>
+(function () {
+  if (window.__KOKO_M_PARAM_ORDER_READONLY_V1__) return;
+  window.__KOKO_M_PARAM_ORDER_READONLY_V1__ = true;
+
+  function getMCode() {
+    var params = new URLSearchParams(window.location.search || '');
+    return params.get('M') || params.get('m') || '';
+  }
+
+  function findOrderInput() {
+    var selectors = [
+      '#orderID',
+      '#orderId',
+      '#order_id',
+      '#orderid',
+      '#order',
+      '#dhm',
+      '#kami',
+      '#code',
+      'input[name="orderID"]',
+      'input[name="orderId"]',
+      'input[name="order_id"]',
+      'input[name="orderid"]',
+      'input[placeholder*="兑换码"]',
+      'input[placeholder*="订单号"]',
+      'input[placeholder*="卡密"]'
+    ];
+
+    for (var i = 0; i < selectors.length; i++) {
+      var el = document.querySelector(selectors[i]);
+      if (el) return el;
+    }
+
+    return null;
+  }
+
+  function lockOrderInput() {
+    var code = getMCode();
+
+    // 普通打开页面，不锁定
+    if (!code) return;
+
+    var input = findOrderInput();
+    if (!input) return;
+
+    input.value = code;
+
+    // 用 readonly，不用 disabled，避免提交时取不到值
+    input.readOnly = true;
+    input.setAttribute('readonly', 'readonly');
+    input.setAttribute('data-koko-m-locked', '1');
+
+    input.style.backgroundColor = '#f5f5f5';
+    input.style.cursor = 'not-allowed';
+    input.title = '兑换码来自专属链接，不能手动修改';
+
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+
+    // 防止旧 JS 后续清空或用户通过脚本改掉
+    if (!input.__kokoMLockPatched) {
+      input.__kokoMLockPatched = true;
+
+      input.addEventListener('keydown', function (e) {
+        e.preventDefault();
+      }, true);
+
+      input.addEventListener('paste', function (e) {
+        e.preventDefault();
+      }, true);
+
+      input.addEventListener('cut', function (e) {
+        e.preventDefault();
+      }, true);
+    }
+
+    console.log('[KOKO_M_PARAM_ORDER_READONLY] 已自动填入并锁定兑换码:', code);
+  }
+
+  function boot() {
+    lockOrderInput();
+    setTimeout(lockOrderInput, 300);
+    setTimeout(lockOrderInput, 800);
+    setTimeout(lockOrderInput, 1500);
+    setTimeout(lockOrderInput, 3000);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+
+  var observer = new MutationObserver(function () {
+    lockOrderInput();
+  });
+
+  observer.observe(document.documentElement, {
+    childList: true,
+    subtree: true
+  });
+})();
+</script>
+<!-- KOKO_M_PARAM_ORDER_READONLY_V1_END -->
+
 </body>
 </html>
