@@ -369,7 +369,7 @@ html, body {
 
     <!-- 查询进度 -->
     <div class="form-group">
-      <label for="query_phone">兑换码</label>
+      <label for="query_phone">手机号<br>/兑换码</label>
       <input type="text" id="query_phone" placeholder="请输入手机号或兑换码">
       <span class="fmt-tip" id="tip_phone">格式不对</span>
     </div>
@@ -3365,163 +3365,174 @@ function copyUserID(userid) {
 <!-- KOKO_RECHARGE_PROGRESS_WIDTH_V5_END -->
 
 
-<!-- KOKO_SHORT_M_URL_AUTOFILL_V1_START -->
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- KOKO_M_EXACT_ORDERID_QUERYPHONE_V4_START -->
 <script>
 (function () {
-  function getCodeFromUrl() {
-    var params = new URLSearchParams(window.location.search || '');
-
-    // M 是正式短参数；其他参数只做兼容旧链接
-    return params.get('M')
-      || params.get('m')
-      || params.get('orderID')
-      || params.get('order_id')
-      || '';
-  }
-
-  function findCodeInput() {
-    var selectors = [
-      '#orderID',
-      '#orderId',
-      '#order_id',
-      '#orderid',
-      '#order',
-      '#dhm',
-      '#kami',
-      '#code',
-      'input[name="orderID"]',
-      'input[name="orderId"]',
-      'input[name="order_id"]',
-      'input[name="orderid"]',
-      'input[placeholder*="兑换码"]',
-      'input[placeholder*="订单号"]',
-      'input[placeholder*="卡密"]'
-    ];
-
-    for (var i = 0; i < selectors.length; i++) {
-      var el = document.querySelector(selectors[i]);
-      if (el) return el;
-    }
-
-    return null;
-  }
-
-  function fill() {
-    var code = getCodeFromUrl();
-    if (!code) return;
-
-    var input = findCodeInput();
-    if (!input) return;
-
-    if (!input.value) {
-      input.value = code;
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-      console.log('[KOKO_SHORT_M_URL_AUTOFILL] 已自动填入 M:', code);
-    }
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', fill);
-  } else {
-    fill();
-  }
-
-  setTimeout(fill, 300);
-  setTimeout(fill, 1000);
-  setTimeout(fill, 2000);
-})();
-</script>
-<!-- KOKO_SHORT_M_URL_AUTOFILL_V1_END -->
-
-
-<!-- KOKO_M_PARAM_ORDER_READONLY_V1_START -->
-<script>
-(function () {
-  if (window.__KOKO_M_PARAM_ORDER_READONLY_V1__) return;
-  window.__KOKO_M_PARAM_ORDER_READONLY_V1__ = true;
+  if (window.__KOKO_M_EXACT_ORDERID_QUERYPHONE_V4__) return;
+  window.__KOKO_M_EXACT_ORDERID_QUERYPHONE_V4__ = true;
 
   function getMCode() {
     var params = new URLSearchParams(window.location.search || '');
     return params.get('M') || params.get('m') || '';
   }
 
-  function findOrderInput() {
-    var selectors = [
-      '#orderID',
-      '#orderId',
-      '#order_id',
-      '#orderid',
-      '#order',
-      '#dhm',
-      '#kami',
-      '#code',
-      'input[name="orderID"]',
-      'input[name="orderId"]',
-      'input[name="order_id"]',
-      'input[name="orderid"]',
-      'input[placeholder*="兑换码"]',
-      'input[placeholder*="订单号"]',
-      'input[placeholder*="卡密"]'
-    ];
+  function setInputValue(el, value, dispatch) {
+    if (!el) return;
 
-    for (var i = 0; i < selectors.length; i++) {
-      var el = document.querySelector(selectors[i]);
-      if (el) return el;
+    value = String(value || '');
+
+    if (el.value !== value) {
+      el.value = value;
+      if (dispatch) {
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      }
     }
-
-    return null;
   }
 
-  function lockOrderInput() {
-    var code = getMCode();
+  function lockInput(el, code) {
+    if (!el) return;
 
-    // 普通打开页面，不锁定
-    if (!code) return;
+    el.readOnly = true;
+    el.setAttribute('readonly', 'readonly');
+    el.setAttribute('data-koko-m-locked', '1');
+    el.setAttribute('data-koko-m-locked-value', code);
 
-    var input = findOrderInput();
-    if (!input) return;
+    el.style.backgroundColor = '#f5f5f5';
+    el.style.cursor = 'not-allowed';
+    el.title = '兑换码来自专属链接，不能手动修改';
 
-    input.value = code;
+    if (!el.__kokoExactLockV4) {
+      el.__kokoExactLockV4 = true;
 
-    // 用 readonly，不用 disabled，避免提交时取不到值
-    input.readOnly = true;
-    input.setAttribute('readonly', 'readonly');
-    input.setAttribute('data-koko-m-locked', '1');
-
-    input.style.backgroundColor = '#f5f5f5';
-    input.style.cursor = 'not-allowed';
-    input.title = '兑换码来自专属链接，不能手动修改';
-
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-
-    // 防止旧 JS 后续清空或用户通过脚本改掉
-    if (!input.__kokoMLockPatched) {
-      input.__kokoMLockPatched = true;
-
-      input.addEventListener('keydown', function (e) {
+      el.addEventListener('beforeinput', function (e) {
         e.preventDefault();
       }, true);
 
-      input.addEventListener('paste', function (e) {
+      el.addEventListener('paste', function (e) {
         e.preventDefault();
       }, true);
 
-      input.addEventListener('cut', function (e) {
+      el.addEventListener('cut', function (e) {
         e.preventDefault();
       }, true);
     }
+  }
 
-    console.log('[KOKO_M_PARAM_ORDER_READONLY] 已自动填入并锁定兑换码:', code);
+  function clearCaptchaIfWrong(code) {
+    var possibleCaptchaIds = [
+      'code',
+      'yzm',
+      'captcha',
+      'verify_code',
+      'verification_code',
+      'sms_code'
+    ];
+
+    possibleCaptchaIds.forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+
+      if (String(el.value || '') === String(code || '')) {
+        el.value = '';
+        el.readOnly = false;
+        el.removeAttribute('readonly');
+        el.removeAttribute('data-koko-m-locked');
+        el.removeAttribute('data-koko-m-locked-value');
+        el.style.backgroundColor = '';
+        el.style.cursor = '';
+        el.title = '';
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    });
+  }
+
+  function syncQueryPhoneFromOrderId(lockWhenM) {
+    var orderInput = document.getElementById('order_id');
+    var queryInput = document.getElementById('query_phone');
+
+    if (!orderInput || !queryInput) return;
+
+    var v = String(orderInput.value || '').trim();
+    if (!v) return;
+
+    setInputValue(queryInput, v, true);
+
+    if (lockWhenM) {
+      lockInput(queryInput, v);
+    }
+  }
+
+  function applyMCode() {
+    var code = getMCode();
+
+    if (!code) {
+      // 普通打开页面：只做一次普通同步，不强制锁定
+      syncQueryPhoneFromOrderId(false);
+      return;
+    }
+
+    clearCaptchaIfWrong(code);
+
+    var orderInput = document.getElementById('order_id');
+    if (!orderInput) return;
+
+    // 1. URL 的 M 只写入兑换码输入框 #order_id
+    setInputValue(orderInput, code, true);
+
+    // 长链接打开时，兑换码输入框锁定
+    lockInput(orderInput, code);
+
+    // 2. #query_phone 不读取 URL，固定从 #order_id 复制
+    syncQueryPhoneFromOrderId(true);
+  }
+
+  function bindOrderIdSync() {
+    var orderInput = document.getElementById('order_id');
+    if (!orderInput || orderInput.__kokoQueryPhoneSyncV4) return;
+
+    orderInput.__kokoQueryPhoneSyncV4 = true;
+
+    orderInput.addEventListener('input', function () {
+      syncQueryPhoneFromOrderId(!!getMCode());
+    });
+
+    orderInput.addEventListener('change', function () {
+      syncQueryPhoneFromOrderId(!!getMCode());
+    });
   }
 
   function boot() {
-    lockOrderInput();
-    setTimeout(lockOrderInput, 300);
-    setTimeout(lockOrderInput, 800);
-    setTimeout(lockOrderInput, 1500);
-    setTimeout(lockOrderInput, 3000);
+    bindOrderIdSync();
+    applyMCode();
+
+    setTimeout(function () {
+      bindOrderIdSync();
+      applyMCode();
+    }, 300);
+
+    setTimeout(function () {
+      bindOrderIdSync();
+      applyMCode();
+    }, 1000);
+
+    setTimeout(function () {
+      bindOrderIdSync();
+      applyMCode();
+    }, 2000);
   }
 
   if (document.readyState === 'loading') {
@@ -3530,8 +3541,14 @@ function copyUserID(userid) {
     boot();
   }
 
+  var lastRun = 0;
   var observer = new MutationObserver(function () {
-    lockOrderInput();
+    var now = Date.now();
+    if (now - lastRun < 500) return;
+    lastRun = now;
+
+    bindOrderIdSync();
+    applyMCode();
   });
 
   observer.observe(document.documentElement, {
@@ -3540,7 +3557,7 @@ function copyUserID(userid) {
   });
 })();
 </script>
-<!-- KOKO_M_PARAM_ORDER_READONLY_V1_END -->
+<!-- KOKO_M_EXACT_ORDERID_QUERYPHONE_V4_END -->
 
 </body>
 </html>
