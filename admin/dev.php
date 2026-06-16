@@ -22,17 +22,7 @@ $devices = [
 ];
 
 $inNightTime = (date('H:i') >= '21:50' || date('H:i') < '08:30');
-$lastMailTimeFile = __DIR__ . '/last_mail_time.txt';
 $now = time();
-
-function readLastMailTime($file) {
-  if (!file_exists($file)) return 0;
-  $v = (int)@file_get_contents($file);
-  return $v > 0 ? $v : 0;
-}
-function writeLastMailTime($file, $ts) {
-  @file_put_contents($file, (string)$ts, LOCK_EX);
-}
 
 // ✅ 查设备心跳状态
 function checkDeviceStatus($db, $devId, $threshold) {
@@ -156,16 +146,15 @@ try {
     ];
   }
 
-  // 邮件节流
-  $lastMailTime = readLastMailTime($lastMailTimeFile);
+  // 邮件节流：同一种设备离线通知最小间隔 60 秒（可由系统配置覆盖）。
   $canSend = (koko_get_setting('notify_device_offline', '1') === '1'
     && !empty($abnormalDevices)
     && !$inNightTime
-    && ($now - $lastMailTime > 120));
+    && koko_mail_cooldown_ready('mail_last_sent_device_offline_at', $now));
 
   if ($canSend) {
     $ok = sendAbnormalMail($abnormalDevices);
-    if ($ok) writeLastMailTime($lastMailTimeFile, $now);
+    if ($ok) koko_mark_mail_sent('mail_last_sent_device_offline_at', $now);
   }
 
   echo json_encode($response, JSON_UNESCAPED_UNICODE);
