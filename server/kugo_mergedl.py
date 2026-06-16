@@ -162,6 +162,12 @@ sys.path.append(os.path.abspath(os.path.realpath(os.path.dirname(__file__))))#
 from flask import Flask, request, render_template,jsonify
 from flask_cors import CORS
 from datetime import datetime, timedelta, date
+from koko_task_helpers import (
+    DEFAULT_SETTINGS,
+    get_setting,
+    notify_new_tasks,
+    site_status_from_settings,
+)
 
 app = Flask(__name__)
 
@@ -1589,9 +1595,52 @@ def start_background_task():
 background_thread = threading.Thread(target=start_background_task, daemon=True)
 background_thread.start()
 
+def start_new_task_notify_scanner():
+    while True:
+        conn = None
+        try:
+            conn = get_db_connection(dict_cursor=True)
+            notify_new_tasks(conn)
+        except Exception as exc:
+            logger.exception("new task notify scanner failed: %s", exc)
+            try:
+                if conn:
+                    conn.rollback()
+            except Exception:
+                pass
+        finally:
+            try:
+                if conn:
+                    conn.close()
+            except Exception:
+                pass
+        time.sleep(30)
+
+new_task_notify_thread = threading.Thread(target=start_new_task_notify_scanner, daemon=True)
+new_task_notify_thread.start()
+
 @app.route('/')
 def index():
     return "Flask app is running with a background task for checking 'r_status'."
+
+@app.get('/site_status')
+def koko_usrvip_site_status():
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cursor:
+            settings = {key: get_setting(cursor, key, default) for key, default in DEFAULT_SETTINGS.items()}
+            conn.commit()
+        return jsonify({"status": "success", **site_status_from_settings(settings)})
+    except Exception:
+        logger.exception("site_status failed")
+        return jsonify({"status": "error", "message": "站点状态读取失败"}), 500
+    finally:
+        try:
+            if conn:
+                conn.close()
+        except Exception:
+            pass
 
 
 
@@ -1724,28 +1773,80 @@ def login():
             # 更新 user_data.submitstatus=2
             cursor.execute("UPDATE user_data SET submitstatus=2 WHERE id=%s", (record_id,))
 
-            # 插入 tel_data（同事务）
-            insert_tel_sql = """
-                INSERT INTO tel_data(
-                    tel, yzm, orderID, zhanghu, huiyuanguize, lingqu3,
-                    shougong, qdzhb, applogin, weblog, init,
-                    yzm_status, status, r_status, c_status, create_date, userid
-                )
-                VALUES(
-                    %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s,
-                    '1', '等待', '1', NOW(), %s
-                )
-            """
-            cursor.execute(insert_tel_sql, (
-                db_phone, db_code, orderID, zhanghu, huiyuanguize, lingqu3,
-                shougong, qdzhb, applogin, weblog, init, yzm_status,
-                (str(userid) if userid is not None else None)
-            ))
-            tel_data_id = cursor.lastrowid
+            # 优先更新由 user_data 自动生成的待确认 tel_data，避免确认账号后产生第二条任务。
+            cursor.execute("""
+                SELECT id FROM tel_data
+                WHERE source_user_data_id=%s
+                  AND task_source='user_data_pending_confirm'
+                  AND r_status='待确认'
+                ORDER BY id DESC LIMIT 1
+                FOR UPDATE
+            """, (record_id,))
+            pending = cursor.fetchone()
+            if not pending:
+                cursor.execute("""
+                    SELECT id FROM tel_data
+                    WHERE tel=%s AND yzm=%s AND orderID=%s AND r_status='待确认'
+                    ORDER BY id DESC LIMIT 1
+                    FOR UPDATE
+                """, (db_phone, db_code, orderID))
+                pending = cursor.fetchone()
+
+            if pending:
+                tel_data_id = pending[0] if not isinstance(pending, dict) else pending.get('id')
+                cursor.execute("""
+                    SELECT COLUMN_NAME FROM information_schema.columns
+                    WHERE table_schema=DATABASE() AND table_name='tel_data'
+                """)
+                tel_cols = {r[0] if not isinstance(r, dict) else r.get('COLUMN_NAME') for r in cursor.fetchall()}
+                update_values = {
+                    'zhanghu': zhanghu, 'huiyuanguize': huiyuanguize, 'lingqu3': lingqu3,
+                    'shougong': shougong, 'qdzhb': qdzhb, 'applogin': applogin,
+                    'weblog': weblog, 'init': init, 'yzm_status': yzm_status,
+                    'status': '1', 'r_status': '待充值', 'c_status': '1',
+                    'userid': (str(userid) if userid is not None else None),
+                }
+                if 'update_date' in tel_cols:
+                    update_values['update_date'] = '__NOW__'
+                update_parts = []
+                update_params = []
+                for col, value in update_values.items():
+                    if col not in tel_cols:
+                        continue
+                    if value == '__NOW__':
+                        update_parts.append(f"`{col}`=NOW()")
+                    else:
+                        update_parts.append(f"`{col}`=%s")
+                        update_params.append(value)
+                update_params.append(tel_data_id)
+                cursor.execute(f"UPDATE tel_data SET {', '.join(update_parts)} WHERE id=%s", update_params)
+            else:
+                # 兼容老流程：找不到待确认任务时仍创建正式充值任务。
+                insert_tel_sql = """
+                    INSERT INTO tel_data(
+                        tel, yzm, orderID, zhanghu, huiyuanguize, lingqu3,
+                        shougong, qdzhb, applogin, weblog, init,
+                        yzm_status, status, r_status, c_status, create_date, userid
+                    )
+                    VALUES(
+                        %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s,
+                        '1', '等待', '1', NOW(), %s
+                    )
+                """
+                cursor.execute(insert_tel_sql, (
+                    db_phone, db_code, orderID, zhanghu, huiyuanguize, lingqu3,
+                    shougong, qdzhb, applogin, weblog, init, yzm_status,
+                    (str(userid) if userid is not None else None)
+                ))
+                tel_data_id = cursor.lastrowid
 
             # 两表同时成功才提交
             conn.commit()
+            try:
+                notify_new_tasks(conn)
+            except Exception:
+                logger.exception("notify_new_tasks after /api chongzhi failed")
 
             # 记录串单现场：客户端 orderID 不一致也无所谓（我们已纠正）
             if orderID_from_client and str(orderID_from_client) != str(orderID):
@@ -3755,5 +3856,3 @@ def koko_exchange_link_redeem_url_compat_v5(response):
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=9999, debug=False)
-
-

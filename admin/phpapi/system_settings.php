@@ -1,0 +1,86 @@
+<?php
+require_once __DIR__ . '/../lib/config.php';
+
+header('Content-Type: application/json; charset=utf-8');
+
+function koko_system_setting_keys() {
+    return [
+        'redeem_url',
+        'notify_device_offline',
+        'notify_new_recharge_task',
+        'notify_backend_error',
+        'usrvip_site_schedule_enabled',
+        'usrvip_site_close_time',
+        'usrvip_site_open_time',
+        'usrvip_site_closed_message',
+    ];
+}
+
+function koko_validate_hhmm($value, $field) {
+    $value = trim((string)$value);
+    if (!preg_match('/^\d{2}:\d{2}$/', $value)) {
+        throw new InvalidArgumentException($field . ' 必须为 HH:MM');
+    }
+    [$hh, $mm] = array_map('intval', explode(':', $value));
+    if ($hh > 23 || $mm > 59) {
+        throw new InvalidArgumentException($field . ' 必须为 HH:MM');
+    }
+    return $value;
+}
+
+try {
+    $pdo = koko_pdo();
+    koko_ensure_system_settings($pdo);
+
+    if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+        $stmt = $pdo->prepare('SELECT setting_key, setting_value FROM system_settings WHERE setting_key = ? LIMIT 1');
+        $settings = [];
+        foreach (koko_system_setting_keys() as $key) {
+            $stmt->execute([$key]);
+            $value = $stmt->fetchColumn();
+            $settings[$key] = $value === false || $value === null ? (koko_default_settings()[$key] ?? '') : $value;
+        }
+        echo json_encode(['success' => true, 'settings' => $settings], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        http_response_code(405);
+        echo json_encode(['success' => false, 'message' => 'Method not allowed'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $payload = json_decode(file_get_contents('php://input'), true);
+    if (!is_array($payload)) {
+        throw new InvalidArgumentException('请求 JSON 无效');
+    }
+
+    $values = [];
+    foreach (koko_system_setting_keys() as $key) {
+        if (!array_key_exists($key, $payload)) {
+            continue;
+        }
+        $value = $payload[$key];
+        if (in_array($key, ['notify_device_offline', 'notify_new_recharge_task', 'notify_backend_error', 'usrvip_site_schedule_enabled'], true)) {
+            $value = ((string)$value === '1' || $value === 1 || $value === true) ? '1' : '0';
+        } elseif (in_array($key, ['usrvip_site_close_time', 'usrvip_site_open_time'], true)) {
+            $value = koko_validate_hhmm($value, $key);
+        } else {
+            $value = trim((string)$value);
+        }
+        $values[$key] = $value;
+    }
+
+    $stmt = $pdo->prepare(
+        'INSERT INTO system_settings (setting_key, setting_value, updated_at) VALUES (?, ?, NOW())
+         ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_at = NOW()'
+    );
+    foreach ($values as $key => $value) {
+        $stmt->execute([$key, $value]);
+    }
+
+    echo json_encode(['success' => true], JSON_UNESCAPED_UNICODE);
+} catch (Throwable $e) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'message' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
+}

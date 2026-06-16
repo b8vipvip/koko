@@ -149,6 +149,10 @@ if (!function_exists('koko_default_settings')) {
             'notify_device_offline' => '1',
             'notify_new_recharge_task' => '1',
             'notify_backend_error' => '1',
+            'usrvip_site_schedule_enabled' => '0',
+            'usrvip_site_close_time' => '23:00',
+            'usrvip_site_open_time' => '08:00',
+            'usrvip_site_closed_message' => '当前站点维护中，请稍后再试',
         ];
     }
 }
