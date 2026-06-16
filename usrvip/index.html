@@ -335,6 +335,8 @@ html, body {
  
   <div class="marquee-content">如果手机号绑定有多个账号，提交后会提示您选择</div>
 </div> 
+    <div id="siteClosedBanner" style="display:none;margin:8px 0;padding:10px;border-radius:8px;background:#fff3cd;color:#856404;text-align:center;font-size:14px;"></div>
+    <div id="submitArea">
     <!-- 提交充值 -->
     <div class="form-group">
       <label for="phone">手机号</label>
@@ -363,6 +365,7 @@ html, body {
     </div>
 
     <button class="btn1" onclick="submitUserInfo()">提交</button>
+    </div>
 
     <!-- 分隔线 -->
     <div class="section-divider"></div>
@@ -402,10 +405,42 @@ html, body {
   </div>
   <script>
 const API_BASE = "";
+let usrvipSiteClosed = false;
+let usrvipSiteClosedMessage = "当前站点维护中，请稍后再试";
 
 function api(path) {
   return path;
 }
+
+async function refreshUsrVipSiteStatus() {
+  try {
+    const response = await fetch(api('/site_status'), { credentials: 'same-origin' });
+    const result = await response.json();
+    usrvipSiteClosed = !!result.closed;
+    usrvipSiteClosedMessage = result.message || usrvipSiteClosedMessage;
+    const banner = document.getElementById('siteClosedBanner');
+    const submitArea = document.getElementById('submitArea');
+    if (usrvipSiteClosed) {
+      if (banner) {
+        banner.textContent = usrvipSiteClosedMessage;
+        banner.style.display = 'block';
+      }
+      if (submitArea) {
+        submitArea.style.display = 'none';
+      }
+    } else {
+      if (banner) banner.style.display = 'none';
+      if (submitArea) submitArea.style.display = '';
+    }
+  } catch (err) {
+    console.warn('[site_status] load failed', err);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  refreshUsrVipSiteStatus();
+  setInterval(refreshUsrVipSiteStatus, 60000);
+});
 
     function showSpinner(msg) {
       return layer.load(1, { content: msg, shade: [0.4, '#000'] });
@@ -585,6 +620,10 @@ function genIdemKey() {
 }
 
 function submitUserInfo() {
+  if (usrvipSiteClosed) {
+    layer.msg(usrvipSiteClosedMessage);
+    return;
+  }
   // 1. 前端立即拦截重复点击
   if (inFlightSubmit) return;
   inFlightSubmit = true;

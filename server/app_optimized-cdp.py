@@ -25,6 +25,13 @@ import shutil
 import random
 from flask_cors import CORS
 from datetime import datetime, timedelta
+from koko_task_helpers import (
+    DEFAULT_SETTINGS,
+    create_pending_tel_task,
+    get_setting,
+    notify_new_tasks,
+    site_status_from_settings,
+)
 
 
 LOG_DIRECTORY = "/opt/koko/logs"
@@ -1057,7 +1064,12 @@ def process_user_record(record_id):
                     accounts[2]['userid'] if len(accounts) > 2 else None,
                     record_id
                 ))
+                create_pending_tel_task(cursor, record_id)
                 connection.commit()
+                try:
+                    notify_new_tasks(connection)
+                except Exception:
+                    logger.exception("notify_new_tasks failed after multiple-account task creation")
                 return {'status': 'multiple', 'accounts': accounts}
 
             # 单账号判断
@@ -1090,7 +1102,12 @@ def process_user_record(record_id):
                 cursor.execute("""
                     UPDATE user_data SET nickname1=%s, pic1=%s, userid1=%s, status=2 WHERE id=%s
                 """, (nickname, pic_url, kugouid, record_id))
+                create_pending_tel_task(cursor, record_id)
                 connection.commit()
+                try:
+                    notify_new_tasks(connection)
+                except Exception:
+                    logger.exception("notify_new_tasks failed after single-account task creation")
                 return {'status': 'single', 'nickname': nickname, 'pic': pic_url, 'userid': kugouid}
 
             # 验证码错误判断
@@ -1392,6 +1409,29 @@ def unlock_order_if_locked(conn, order_id: str) -> bool:
         cur.execute("UPDATE order_id SET status=1 WHERE orderID=%s AND status=2", (order_id,))
         return cur.rowcount >= 0
 
+
+def read_usrvip_site_status():
+    conn = pymysql.connect(**db_config)
+    try:
+        with conn.cursor() as cur:
+            settings = {}
+            for key, default in DEFAULT_SETTINGS.items():
+                settings[key] = get_setting(cur, key, default)
+            conn.commit()
+        return site_status_from_settings(settings)
+    finally:
+        conn.close()
+
+
+@app.get("/site_status")
+def site_status():
+    try:
+        status = read_usrvip_site_status()
+        return jsonify({"status": "success", **status})
+    except Exception:
+        logger.exception("site_status failed")
+        return jsonify({"status": "error", "message": "站点状态读取失败"}), 500
+
 try:
     ensure_tables()
 except Exception as exc:
@@ -1405,6 +1445,10 @@ def submit():
     phone = data.get("phone")
     code = data.get("code")
     order_id = data.get("order_id")
+
+    status = read_usrvip_site_status()
+    if status.get("closed"):
+        return jsonify({"status": "site_closed", "message": status.get("message")}), 423
 
     # 基本校验
     if not all([phone, code, order_id]):

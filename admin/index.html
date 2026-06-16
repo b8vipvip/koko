@@ -100,16 +100,29 @@
       + '</div>';
   }
 
+  function inputHtml(id, title, value, placeholder) {
+    return ''
+      + '<div class="koko-setting-row" style="padding:12px 0;border-bottom:1px solid #f0f0f0;">'
+      + '  <div style="font-weight:600;color:#222;font-size:14px;margin-bottom:6px;">' + title + '</div>'
+      + '  <input id="' + id + '" value="' + String(value || '').replace(/"/g, '&quot;') + '" placeholder="' + placeholder + '" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #ddd;border-radius:4px;">'
+      + '</div>';
+  }
+
   function openSettingsModal(settings) {
     var backendError = toBool(getSetting(settings, 'notify_backend_error', 1));
     var deviceOffline = toBool(getSetting(settings, 'notify_device_offline', 1));
     var newRecharge = toBool(getSetting(settings, 'notify_new_recharge_task', 1));
+    var usrvipSchedule = toBool(getSetting(settings, 'usrvip_site_schedule_enabled', 0));
 
     var html = ''
       + '<div id="koko-system-settings-v8" style="padding:14px 18px 4px;background:#fff;box-sizing:border-box;">'
       + rowHtml('kokoNotifyBackendError', '后端错误邮件通知', '后端接口、任务或系统异常时发送邮件提醒。', backendError)
       + rowHtml('kokoNotifyDeviceOffline', '设备离线邮件通知', '检测到设备掉线、异常不可用时发送邮件提醒。', deviceOffline)
       + rowHtml('kokoNotifyNewRechargeTask', '新充值任务邮件通知', '收到新的充值任务或待处理任务时发送邮件提醒。', newRecharge)
+      + rowHtml('kokoUsrVipScheduleEnabled', 'usrvip 定时关闭', '按服务器时间每天自动关闭/开启普通用户兑换页提交入口。', usrvipSchedule)
+      + inputHtml('kokoUsrVipCloseTime', '每天关闭时间', getSetting(settings, 'usrvip_site_close_time', '23:00'), 'HH:MM')
+      + inputHtml('kokoUsrVipOpenTime', '每天开启时间', getSetting(settings, 'usrvip_site_open_time', '08:00'), 'HH:MM')
+      + inputHtml('kokoUsrVipClosedMessage', '关闭期间提示文本', getSetting(settings, 'usrvip_site_closed_message', '当前站点维护中，请稍后再试'), '当前站点维护中，请稍后再试')
       + '<div style="font-size:12px;color:#999;line-height:1.6;margin-top:12px;">兑换链接已移动到 ka.k2n.cn/kami.html 页面中配置，这里不再显示兑换链接。</div>'
       + '</div>';
 
@@ -128,7 +141,11 @@
         var payload = {
           notify_backend_error: document.getElementById('kokoNotifyBackendError').checked ? 1 : 0,
           notify_device_offline: document.getElementById('kokoNotifyDeviceOffline').checked ? 1 : 0,
-          notify_new_recharge_task: document.getElementById('kokoNotifyNewRechargeTask').checked ? 1 : 0
+          notify_new_recharge_task: document.getElementById('kokoNotifyNewRechargeTask').checked ? 1 : 0,
+          usrvip_site_schedule_enabled: document.getElementById('kokoUsrVipScheduleEnabled').checked ? 1 : 0,
+          usrvip_site_close_time: document.getElementById('kokoUsrVipCloseTime').value.trim(),
+          usrvip_site_open_time: document.getElementById('kokoUsrVipOpenTime').value.trim(),
+          usrvip_site_closed_message: document.getElementById('kokoUsrVipClosedMessage').value.trim()
         };
 
         try {
@@ -850,9 +867,26 @@
         const settings = result.settings || {};
         const content = `
           <div class="layui-form system-settings-form">
+            <div class="layui-form-item">
+              <label class="layui-form-label">兑换链接</label>
+              <div class="layui-input-block"><input id="settingRedeemUrl" class="layui-input" placeholder="https://..." /></div>
+            </div>
             ${settingsSwitchHtml('settingNotifyDeviceOffline', '设备离线通知')}
             ${settingsSwitchHtml('settingNotifyNewTask', '新充值任务通知')}
             ${settingsSwitchHtml('settingNotifyBackendError', '后端运行报错通知')}
+            ${settingsSwitchHtml('settingUsrVipScheduleEnabled', 'usrvip 定时关闭')}
+            <div class="layui-form-item">
+              <label class="layui-form-label">关闭时间</label>
+              <div class="layui-input-block"><input id="settingUsrVipCloseTime" class="layui-input" placeholder="HH:MM" /></div>
+            </div>
+            <div class="layui-form-item">
+              <label class="layui-form-label">开启时间</label>
+              <div class="layui-input-block"><input id="settingUsrVipOpenTime" class="layui-input" placeholder="HH:MM" /></div>
+            </div>
+            <div class="layui-form-item">
+              <label class="layui-form-label">关闭提示</label>
+              <div class="layui-input-block"><textarea id="settingUsrVipClosedMessage" class="layui-textarea"></textarea></div>
+            </div>
           </div>`;
 
         layer.open({
@@ -862,18 +896,26 @@
           content,
           btn: ['保存', '取消'],
           success: function () {
-            document.getElementById('').value = settings.redeem_url || '';
+            document.getElementById('settingRedeemUrl').value = settings.redeem_url || '';
             document.getElementById('settingNotifyDeviceOffline').checked = settings.notify_device_offline === '1';
             document.getElementById('settingNotifyNewTask').checked = settings.notify_new_recharge_task === '1';
             document.getElementById('settingNotifyBackendError').checked = settings.notify_backend_error === '1';
+            document.getElementById('settingUsrVipScheduleEnabled').checked = settings.usrvip_site_schedule_enabled === '1';
+            document.getElementById('settingUsrVipCloseTime').value = settings.usrvip_site_close_time || '23:00';
+            document.getElementById('settingUsrVipOpenTime').value = settings.usrvip_site_open_time || '08:00';
+            document.getElementById('settingUsrVipClosedMessage').value = settings.usrvip_site_closed_message || '当前站点维护中，请稍后再试';
             layui.form.render('checkbox');
           },
           yes: async function (index) {
             const payload = {
-              redeem_url: document.getElementById('').value.trim(),
+              redeem_url: document.getElementById('settingRedeemUrl').value.trim(),
               notify_device_offline: document.getElementById('settingNotifyDeviceOffline').checked ? 1 : 0,
               notify_new_recharge_task: document.getElementById('settingNotifyNewTask').checked ? 1 : 0,
-              notify_backend_error: document.getElementById('settingNotifyBackendError').checked ? 1 : 0
+              notify_backend_error: document.getElementById('settingNotifyBackendError').checked ? 1 : 0,
+              usrvip_site_schedule_enabled: document.getElementById('settingUsrVipScheduleEnabled').checked ? 1 : 0,
+              usrvip_site_close_time: document.getElementById('settingUsrVipCloseTime').value.trim(),
+              usrvip_site_open_time: document.getElementById('settingUsrVipOpenTime').value.trim(),
+              usrvip_site_closed_message: document.getElementById('settingUsrVipClosedMessage').value.trim()
             };
             const saving = layer.load(1);
             try {
