@@ -153,6 +153,10 @@ if (!function_exists('koko_default_settings')) {
             'usrvip_site_close_time' => '23:00',
             'usrvip_site_open_time' => '08:00',
             'usrvip_site_closed_message' => '当前站点维护中，请稍后再试',
+            'mail_notify_interval_seconds' => '60',
+            'mail_last_sent_backend_error_at' => '',
+            'mail_last_sent_device_offline_at' => '',
+            'mail_last_sent_new_task_at' => '',
         ];
     }
 }
@@ -192,6 +196,43 @@ if (!function_exists('koko_get_setting')) {
             error_log('Unable to read system setting ' . $key . ': ' . $e->getMessage());
             return $default;
         }
+    }
+}
+
+if (!function_exists('koko_set_setting')) {
+    function koko_set_setting($key, $value) {
+        $pdo = koko_pdo();
+        koko_ensure_system_settings($pdo);
+        $stmt = $pdo->prepare('INSERT INTO system_settings (setting_key, setting_value, updated_at) VALUES (?, ?, NOW()) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_at = NOW()');
+        $stmt->execute([$key, (string)$value]);
+    }
+}
+
+if (!function_exists('koko_mail_notify_interval_seconds')) {
+    function koko_mail_notify_interval_seconds() {
+        $seconds = (int)koko_get_setting('mail_notify_interval_seconds', '60');
+        return $seconds >= 0 ? $seconds : 60;
+    }
+}
+
+if (!function_exists('koko_mail_cooldown_ready')) {
+    function koko_mail_cooldown_ready($settingKey, $now = null) {
+        $now = $now ?: time();
+        $last = trim((string)koko_get_setting($settingKey, ''));
+        if ($last === '') {
+            return true;
+        }
+        $lastTs = strtotime($last);
+        if (!$lastTs) {
+            return true;
+        }
+        return ($now - $lastTs) >= koko_mail_notify_interval_seconds();
+    }
+}
+
+if (!function_exists('koko_mark_mail_sent')) {
+    function koko_mark_mail_sent($settingKey, $now = null) {
+        koko_set_setting($settingKey, date('Y-m-d H:i:s', $now ?: time()));
     }
 }
 

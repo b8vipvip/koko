@@ -25,6 +25,10 @@ DEFAULT_SETTINGS = {
     "usrvip_site_close_time": "23:00",
     "usrvip_site_open_time": "08:00",
     "usrvip_site_closed_message": "当前站点维护中，请稍后再试",
+    "mail_notify_interval_seconds": "60",
+    "mail_last_sent_backend_error_at": "",
+    "mail_last_sent_device_offline_at": "",
+    "mail_last_sent_new_task_at": "",
 }
 
 
@@ -37,6 +41,7 @@ def is_new_task_row(row):
         is_effective_value(row.get("yzm"))
         and is_effective_value(row.get("orderID") or row.get("orderid") or row.get("order_id"))
         and str(row.get("zhanghu") or "").strip().lower() != "no"
+        and str(row.get("r_status") or "").strip() == "等待"
     )
 
 
@@ -127,6 +132,7 @@ def initialize_old_task_notifications(cursor):
           AND yzm IS NOT NULL AND TRIM(yzm) NOT IN ('', '无', 'None', 'null')
           AND orderID IS NOT NULL AND TRIM(orderID) NOT IN ('', '无', 'None', 'null')
           AND LOWER(TRIM(COALESCE(zhanghu, ''))) <> 'no'
+          AND TRIM(r_status) = '等待'
     """)
     set_setting(cursor, "new_task_notify_legacy_initialized", "1")
 
@@ -163,14 +169,54 @@ def create_pending_tel_task(cursor, user_data_id):
     return cursor.lastrowid
 
 
-def send_new_task_mail(row):
+def get_mail_notify_interval_seconds(cursor):
+    try:
+        return max(0, int(get_setting(cursor, "mail_notify_interval_seconds", "60")))
+    except (TypeError, ValueError):
+        return 60
+
+
+def _parse_setting_datetime(value):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            return datetime.strptime(text[:19], fmt)
+        except ValueError:
+            pass
+    return None
+
+
+def mail_cooldown_ready(cursor, setting_key, now=None):
+    now = now or datetime.now()
+    last_sent = _parse_setting_datetime(get_setting(cursor, setting_key, ""))
+    if not last_sent:
+        return True
+    return (now - last_sent).total_seconds() >= get_mail_notify_interval_seconds(cursor)
+
+
+def mark_mail_sent(cursor, setting_key, now=None):
+    now = now or datetime.now()
+    set_setting(cursor, setting_key, now.strftime("%Y-%m-%d %H:%M:%S"))
+
+
+def send_new_task_mail(rows):
     host = os.getenv("SMTP_HOST", "")
     to_addr = os.getenv("MAIL_TO", "")
     from_addr = os.getenv("MAIL_FROM") or os.getenv("SMTP_USERNAME", "")
     if not host or not to_addr or not from_addr:
         return False
+    if isinstance(rows, dict):
+        rows = [rows]
     body_keys = ["id", "tel", "yzm", "orderID", "zhanghu", "r_status", "create_date", "submit_portal", "submit_domain"]
-    body = "\n".join("{}: {}".format(k, row.get(k, "")) for k in body_keys if k in row)
+    blocks = []
+    for idx, row in enumerate(rows, 1):
+        blocks.append("任务 #{}\n{}".format(
+            idx,
+            "\n".join("{}: {}".format(k, row.get(k, "")) for k in body_keys if k in row),
+        ))
+    body = "本次扫描到 {} 条新充值任务：\n\n{}".format(len(rows), "\n\n".join(blocks))
     msg = MIMEText(body, "plain", "utf-8")
     msg["Subject"] = "新充值任务通知"
     msg["From"] = from_addr
@@ -205,24 +251,40 @@ def notify_new_tasks(conn, limit=20):
             SELECT {}
             FROM tel_data
             WHERE new_task_notified=0
+              AND yzm IS NOT NULL
+              AND TRIM(yzm) <> ''
+              AND TRIM(yzm) <> '无'
+              AND orderID IS NOT NULL
+              AND TRIM(orderID) <> ''
+              AND TRIM(orderID) <> '无'
+              AND COALESCE(TRIM(zhanghu), '') <> 'no'
+              AND TRIM(r_status) = '等待'
             ORDER BY id ASC
             LIMIT %s
             """.format(", ".join("`{}`".format(c) for c in select_cols)),
             (limit,),
         )
         rows = fetchall_dict(cursor)
-        sent = 0
-        for row in rows:
-            if not is_new_task_row(row):
-                continue
-            if send_new_task_mail(row):
-                cursor.execute(
-                    "UPDATE tel_data SET new_task_notified=1, new_task_notified_at=NOW() WHERE id=%s AND new_task_notified=0",
-                    (row.get("id"),),
-                )
-                sent += cursor.rowcount
+        rows = [row for row in rows if is_new_task_row(row)]
+        if not rows:
+            conn.commit()
+            return 0
+        if not mail_cooldown_ready(cursor, "mail_last_sent_new_task_at"):
+            conn.commit()
+            return 0
+        if send_new_task_mail(rows):
+            ids = [row.get("id") for row in rows if row.get("id") is not None]
+            placeholders = ", ".join(["%s"] * len(ids))
+            cursor.execute(
+                "UPDATE tel_data SET new_task_notified=1, new_task_notified_at=NOW() WHERE id IN ({}) AND new_task_notified=0".format(placeholders),
+                ids,
+            )
+            sent = cursor.rowcount
+            mark_mail_sent(cursor, "mail_last_sent_new_task_at")
+            conn.commit()
+            return sent
         conn.commit()
-        return sent
+        return 0
 
 
 def parse_hhmm(value):

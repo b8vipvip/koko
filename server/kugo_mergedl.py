@@ -1803,7 +1803,7 @@ def login():
                     'zhanghu': zhanghu, 'huiyuanguize': huiyuanguize, 'lingqu3': lingqu3,
                     'shougong': shougong, 'qdzhb': qdzhb, 'applogin': applogin,
                     'weblog': weblog, 'init': init, 'yzm_status': yzm_status,
-                    'status': '1', 'r_status': '待充值', 'c_status': '1',
+                    'status': '1', 'r_status': '等待', 'c_status': '1',
                     'userid': (str(userid) if userid is not None else None),
                 }
                 if 'update_date' in tel_cols:
