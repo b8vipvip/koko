@@ -206,9 +206,9 @@
     <h2>卡密添加与查询</h2>
 
     <!-- 选择卡密数量 -->
-    
+
     <!-- 选择规格 -->
-    
+
     <div class="form-group">
       <label for="order_type">选择规格</label>
       <select id="order_type" class="layui-input">
@@ -238,7 +238,7 @@
       </select>
     </div>
 	<!-- 选择仓库 -->
-	
+
     <!-- 提交按钮 -->
     <div class="form-inline" style="display:flex;gap:10px;">
   <!--<button id="submit_btn" style="flex:1 1 50%;">提交添加</button>-->
@@ -263,8 +263,8 @@ layui.use(['layer'], function(){
       'hh3': [21.8, 23.8, 27.8],
       'hh12': [92.8, 115],
       'cj1': [9.9,11.8, 12.9, 14.9, 18.8],
-      'cj3': [32.8, 52.8],
-      'cj12': [128, 168]
+      'cj3': [38.8, 68.8],
+      'cj12': [168, 208]
     };
 
     const priceOptions = priceMap[type] || [];
@@ -414,7 +414,7 @@ async function showCopyDialog(orderIDs) {
       return;
     }
 
-    
+
     const type = document.getElementById('order_type').value;
     const price = parseFloat(document.getElementById('order_price').value);
     const count = 1;
@@ -442,7 +442,7 @@ async function showCopyDialog(orderIDs) {
       offset: 'auto',
       content: `
         <div style="text-align:center;padding:20px;">
-          <div class="layui-icon layui-icon-loading layui-anim layui-anim-rotate layui-anim-loop" 
+          <div class="layui-icon layui-icon-loading layui-anim layui-anim-rotate layui-anim-loop"
               style="font-size:30px;color:#1890ff;"></div>
           <div style="margin-top:10px;font-size:14px;color:#333;">请勿关闭，正在提取...</div>
         </div>
@@ -918,5 +918,387 @@ async function showCopyDialog(orderIDs) {
 })();
 </script>
 <!-- KOKO_KAMI_EXCHANGE_LINK_FINAL_V4_END -->
+
+
+
+
+
+<!-- KOKO_KAMI_LONG_LINK_ALL_IN_ONE_V5_START -->
+<style>
+  .koko-long-link-box-v5 {
+    margin-top: 12px;
+    margin-bottom: 12px;
+    padding: 12px;
+    border: 1px solid #e8e8e8;
+    border-radius: 8px;
+    background: #fafafa;
+    box-sizing: border-box;
+  }
+  .koko-long-link-desc-line-v5 {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 8px;
+  }
+  .koko-long-link-desc-line-v5 input,
+  .koko-long-link-desc-line-v5 textarea {
+    flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+  }
+  .koko-long-link-desc-save-v5 {
+    padding: 8px 12px;
+    border: 0;
+    border-radius: 6px;
+    background: #1677ff;
+    color: #fff;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .koko-long-link-tip-v5 {
+    font-size: 12px;
+    color: #888;
+    line-height: 1.6;
+    margin-top: 6px;
+  }
+</style>
+<script>
+(function () {
+  if (window.__KOKO_KAMI_LONG_LINK_ALL_IN_ONE_V5__) return;
+  window.__KOKO_KAMI_LONG_LINK_ALL_IN_ONE_V5__ = true;
+
+  var DESC_API = '/phpapi/long_link_desc_config.php';
+  var CFG = {
+    retail_exchange_url: 'https://cn12.vip',
+    agent_exchange_url: 'https://vip.ka8.shop'
+  };
+
+  function msg(text) {
+    if (window.layer && layer.msg) layer.msg(text);
+    else alert(text);
+  }
+
+  function enabled() {
+    var el = document.getElementById('koko_generate_long_link_v5');
+    return !!(el && el.checked);
+  }
+
+  function getDescInput() {
+    return document.getElementById('koko_long_link_desc_v5');
+  }
+
+  function getDesc() {
+    var el = getDescInput();
+    return el ? String(el.value || '') : '';
+  }
+
+  function isAgentMode() {
+    var selects = Array.prototype.slice.call(document.querySelectorAll('select'));
+    for (var i = 0; i < selects.length; i++) {
+      var s = selects[i];
+      var txt = '';
+      try { txt = s.options[s.selectedIndex] ? s.options[s.selectedIndex].text : ''; } catch(e) {}
+      var v = String(s.value || '').trim();
+      if (txt.indexOf('代理') !== -1) return true;
+      if (v && v !== 'retail' && v !== 'normal' && v !== '普通用户') return true;
+    }
+    return false;
+  }
+
+  function getBaseUrl() {
+    var inputs = Array.prototype.slice.call(document.querySelectorAll('input'));
+    for (var i = 0; i < inputs.length; i++) {
+      var v = String(inputs[i].value || '').trim();
+      if (/^https?:\/\//i.test(v)) return v;
+    }
+    return isAgentMode() ? CFG.agent_exchange_url : CFG.retail_exchange_url;
+  }
+
+  function buildLink(code) {
+    code = String(code || '').trim();
+    var base = getBaseUrl() || 'https://cn12.vip';
+
+    if (base.indexOf('{M}') !== -1) {
+      return base.replaceAll('{M}', encodeURIComponent(code));
+    }
+    if (base.indexOf('{code}') !== -1) {
+      return base.replaceAll('{code}', encodeURIComponent(code));
+    }
+
+    try {
+      var url = new URL(base, window.location.origin);
+      url.searchParams.set('M', code);
+      return url.toString();
+    } catch (e) {
+      var sep = base.indexOf('?') === -1 ? '?' : '&';
+      return base + sep + 'M=' + encodeURIComponent(code);
+    }
+  }
+
+
+  function renderLongLinkTemplate(code) {
+    code = String(code || '').trim();
+    var link = buildLink(code);
+    var tpl = getDesc();
+
+    // 没有写替换符时，保持旧逻辑：说明 + 长链接
+    if (
+      tpl.indexOf('{link}') === -1 &&
+      tpl.indexOf('{url}') === -1 &&
+      tpl.indexOf('{兑换链接}') === -1 &&
+      tpl.indexOf('{code}') === -1 &&
+      tpl.indexOf('{M}') === -1 &&
+      tpl.indexOf('{orderID}') === -1 &&
+      tpl.indexOf('{order_id}') === -1 &&
+      tpl.indexOf('{兑换码}') === -1
+    ) {
+      return tpl + link;
+    }
+
+    return tpl
+      .replaceAll('{link}', link)
+      .replaceAll('{url}', link)
+      .replaceAll('{兑换链接}', link)
+      .replaceAll('{code}', code)
+      .replaceAll('{M}', code)
+      .replaceAll('{orderID}', code)
+      .replaceAll('{order_id}', code)
+      .replaceAll('{兑换码}', code);
+  }
+
+
+  function extractCodes(text) {
+    text = String(text || '');
+    var codes = [];
+    var seen = {};
+
+    var re = /兑换码\s*[:：]\s*([A-Za-z0-9_-]+)/g;
+    var m;
+    while ((m = re.exec(text)) !== null) {
+      var code = String(m[1] || '').trim();
+      if (code && !seen[code]) {
+        seen[code] = true;
+        codes.push(code);
+      }
+    }
+
+    if (!codes.length) {
+      text.split(/\r?\n/).forEach(function(line) {
+        line = String(line || '').trim();
+        if (/^[A-Za-z0-9_-]{6,80}$/.test(line) && !/^https?:\/\//i.test(line)) {
+          if (!seen[line]) {
+            seen[line] = true;
+            codes.push(line);
+          }
+        }
+      });
+    }
+
+    return codes;
+  }
+
+  function transformText(text) {
+    if (!enabled()) return text;
+    text = String(text || '');
+
+    if (
+      text.indexOf('兑换码') === -1 &&
+      text.indexOf('会员兑换流程') === -1 &&
+      text.indexOf('第一步') === -1
+    ) {
+      return text;
+    }
+
+    var codes = extractCodes(text);
+    if (!codes.length) return text;
+
+    var desc = getDesc();
+
+    return codes.map(function(code) {
+      return renderLongLinkTemplate(code);
+    }).join('\n');
+  }
+
+  function transformResultAreas() {
+    if (!enabled()) return;
+
+    Array.prototype.forEach.call(document.querySelectorAll('textarea, pre, code, .layui-layer-content'), function(node) {
+      var oldVal = node.tagName === 'TEXTAREA'
+        ? String(node.value || '')
+        : String(node.innerText || node.textContent || '');
+
+      if (
+        oldVal.indexOf('兑换码') === -1 &&
+        oldVal.indexOf('会员兑换流程') === -1 &&
+        oldVal.indexOf('第一步') === -1
+      ) {
+        return;
+      }
+
+      var newVal = transformText(oldVal);
+
+      if (newVal !== oldVal) {
+        if (node.tagName === 'TEXTAREA') {
+          node.value = newVal;
+          node.dispatchEvent(new Event('input', { bubbles: true }));
+          node.dispatchEvent(new Event('change', { bubbles: true }));
+        } else {
+          node.textContent = newVal;
+        }
+      }
+    });
+  }
+
+  function patchLayerOpen() {
+    if (!window.layer || !layer.open || layer.open.__kokoLongLinkV5) return;
+
+    var rawOpen = layer.open;
+    layer.open = function(opts) {
+      var ret = rawOpen.apply(this, arguments);
+      setTimeout(transformResultAreas, 30);
+      setTimeout(transformResultAreas, 120);
+      setTimeout(transformResultAreas, 300);
+      setTimeout(transformResultAreas, 800);
+      return ret;
+    };
+    layer.open.__kokoLongLinkV5 = true;
+  }
+
+  async function loadDesc() {
+    try {
+      var res = await fetch(DESC_API, { credentials: 'same-origin' });
+      var json = await res.json();
+      var desc = json && json.data ? (json.data.long_link_desc || '') : (json.long_link_desc || '');
+      var input = getDescInput();
+      if (input && !input.value) input.value = desc;
+    } catch(e) {}
+  }
+
+  async function saveDesc() {
+    var input = getDescInput();
+    if (!input) return alert('找不到说明输入框');
+
+    try {
+      var res = await fetch(DESC_API, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ long_link_desc: input.value || '' })
+      });
+
+      var text = await res.text();
+      var json = {};
+      try { json = JSON.parse(text); } catch(e) {}
+
+      if (!res.ok || json.success === false) {
+        throw new Error(json.message || text || ('HTTP ' + res.status));
+      }
+
+      msg('说明保存成功');
+    } catch(e) {
+      if (window.layer && layer.alert) layer.alert('说明保存失败：' + e.message);
+      else alert('说明保存失败：' + e.message);
+    }
+  }
+
+  function insertUI() {
+    if (document.getElementById('koko_generate_long_link_v5')) return;
+
+    var box = document.createElement('div');
+    box.className = 'koko-long-link-box-v5';
+    box.innerHTML =
+      '<label style="display:flex;align-items:center;gap:8px;font-weight:600;">' +
+      '<input id="koko_generate_long_link_v5" type="checkbox" style="width:auto;" checked>' +
+      '是否生成长链接' +
+      '</label>' +
+      '<div class="koko-long-link-desc-line-v5">' +
+      '<textarea id="koko_long_link_desc_v5" rows="4" placeholder="例如：兑换链接：{link}"></textarea>' +
+      '<button id="koko_long_link_desc_save_v5" type="button" class="koko-long-link-desc-save-v5">保存</button>' +
+      '</div>' +
+      '<div class="koko-long-link-tip-v5">勾选后支持说明模板换行；可用 {link} 代表完整长链接，{code}/{M}/{orderID} 代表兑换码；不影响兑换码生成和入库。</div>';
+
+    var buttons = Array.prototype.slice.call(document.querySelectorAll('button, input[type="button"], input[type="submit"], a'));
+    var target = null;
+
+    for (var i = 0; i < buttons.length; i++) {
+      var t = (buttons[i].innerText || buttons[i].value || buttons[i].textContent || '').trim();
+      if (
+        t.indexOf('批量提取并下载') !== -1 ||
+        t.indexOf('提取卡密') !== -1 ||
+        (t.indexOf('提取') !== -1 && t.indexOf('卡密') !== -1)
+      ) {
+        target = buttons[i];
+        break;
+      }
+    }
+
+    if (target) {
+      var parent = target.parentElement || target;
+      parent.parentElement.insertBefore(box, parent);
+    } else {
+      var container = document.querySelector('.container, .card, .layui-form, form, body');
+      container.appendChild(box);
+    }
+
+    document.getElementById('koko_long_link_desc_save_v5').addEventListener('click', saveDesc);
+    loadDesc();
+
+    console.log('[KOKO_KAMI_LONG_LINK_ALL_IN_ONE_V5] UI inserted');
+  }
+
+  function patchBlobDownload() {
+    if (window.__KOKO_LONG_LINK_BLOB_PATCHED_V5__) return;
+    window.__KOKO_LONG_LINK_BLOB_PATCHED_V5__ = true;
+
+    var NativeBlob = window.Blob;
+
+    window.Blob = function(parts, options) {
+      try {
+        var type = options && options.type ? String(options.type) : '';
+        if (enabled() && parts && parts.length === 1 && typeof parts[0] === 'string' && (type.indexOf('text/plain') !== -1 || type === '')) {
+          var raw = String(parts[0] || '');
+          var lines = raw.split(/\r?\n/).filter(function(x){ return String(x).trim(); });
+          if (lines.length) {
+            parts = [lines.map(function(code){ return renderLongLinkTemplate(code.trim()); }).join('\r\n')];
+          }
+        }
+      } catch(e) {}
+      return new NativeBlob(parts, options);
+    };
+
+    window.Blob.prototype = NativeBlob.prototype;
+  }
+
+  function boot() {
+    insertUI();
+    patchLayerOpen();
+    patchBlobDownload();
+    transformResultAreas();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+
+  setTimeout(boot, 300);
+  setTimeout(boot, 1000);
+  setTimeout(boot, 2000);
+
+  var observer = new MutationObserver(function() {
+    insertUI();
+    transformResultAreas();
+  });
+
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+
+  console.log('[KOKO_KAMI_LONG_LINK_ALL_IN_ONE_V5] installed');
+})();
+</script>
+<!-- KOKO_KAMI_LONG_LINK_ALL_IN_ONE_V5_END -->
 
 </body>

@@ -881,7 +881,7 @@ class BrowserPool:
             "configuration": "mobile"
         })
 
-        return driver    
+        return driver
     def acquire(self, timeout=30):
         self.ensure_initialized()
         try:
@@ -1046,7 +1046,7 @@ def process_user_record(record_id):
                     except Exception as e:
                         logger.warning(f"解析 check_mobile 响应失败: {e}")
                 cursor.execute("""
-                    UPDATE user_data SET 
+                    UPDATE user_data SET
                         nickname1=%s, pic1=%s, userid1=%s,
                         nickname2=%s, pic2=%s, userid2=%s,
                         nickname3=%s, pic3=%s, userid3=%s,
@@ -1065,6 +1065,17 @@ def process_user_record(record_id):
                     record_id
                 ))
                 create_pending_tel_task(cursor, record_id)
+                # KOKO_FORCE_PENDING_TEL_ZHANGHU_NO_AFTER_CREATE_START
+                cursor.execute("""
+                    UPDATE tel_data
+                    SET
+                        zhanghu='no',
+                        details=CONCAT(tel, ',', yzm, ',no,', orderID, ',status:1,r_status:待确认')
+                    WHERE source_user_data_id=%s
+                      AND task_source='user_data_pending_confirm'
+                      AND r_status='待确认'
+                """, (record_id,))
+                # KOKO_FORCE_PENDING_TEL_ZHANGHU_NO_AFTER_CREATE_END
                 connection.commit()
                 try:
                     notify_new_tasks(connection)
@@ -1103,6 +1114,17 @@ def process_user_record(record_id):
                     UPDATE user_data SET nickname1=%s, pic1=%s, userid1=%s, status=2 WHERE id=%s
                 """, (nickname, pic_url, kugouid, record_id))
                 create_pending_tel_task(cursor, record_id)
+                # KOKO_FORCE_PENDING_TEL_ZHANGHU_NO_AFTER_CREATE_START
+                cursor.execute("""
+                    UPDATE tel_data
+                    SET
+                        zhanghu='no',
+                        details=CONCAT(tel, ',', yzm, ',no,', orderID, ',status:1,r_status:待确认')
+                    WHERE source_user_data_id=%s
+                      AND task_source='user_data_pending_confirm'
+                      AND r_status='待确认'
+                """, (record_id,))
+                # KOKO_FORCE_PENDING_TEL_ZHANGHU_NO_AFTER_CREATE_END
                 connection.commit()
                 try:
                     notify_new_tasks(connection)
@@ -1262,7 +1284,7 @@ def getcode_record(phone):
                 logger.info("[验证码] 浏览器实例已重启并放回池")
             else:
                 logger.warning(f"[验证码] 未能确认验证码已发送：{phone}")
-            
+
         except Exception as e:
             logger.error(f"[验证码] 执行失败: {e}")
 
@@ -1295,7 +1317,7 @@ def getcode_record(phone):
                 cursor.close()
                 connection.close()
 
-            
+
 
     except Exception as e:
         logger.error(f"[验证码] 全局异常: {e}")

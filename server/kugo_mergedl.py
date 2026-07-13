@@ -3854,5 +3854,180 @@ def koko_exchange_link_redeem_url_compat_v5(response):
         return response
 # KOKO_EXCHANGE_LINK_REDEEM_URL_COMPAT_V5_END
 
+
+
+# KOKO_OVERRIDE_CHECK_RECHARGE_DUPLICATE_START
+def _koko_read_env_file_for_duplicate(path):
+    data = {}
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                data[k.strip()] = v.strip().strip('"').strip("'")
+    except Exception:
+        pass
+    return data
+
+
+def _koko_get_duplicate_db_conn():
+    import os
+    import pymysql
+
+    env = {}
+    env.update(_koko_read_env_file_for_duplicate("/opt/koko/.env"))
+    env.update(_koko_read_env_file_for_duplicate("/opt/koko/server/.env"))
+
+    host = (
+        os.getenv("DB_HOST")
+        or os.getenv("MYSQL_HOST")
+        or env.get("DB_HOST")
+        or env.get("MYSQL_HOST")
+        or "127.0.0.1"
+    )
+    user = (
+        os.getenv("DB_USER")
+        or os.getenv("MYSQL_USER")
+        or env.get("DB_USER")
+        or env.get("MYSQL_USER")
+        or "kugo"
+    )
+    password = (
+        os.getenv("DB_PASSWORD")
+        or os.getenv("MYSQL_PASSWORD")
+        or os.getenv("DB_PASS")
+        or os.getenv("MYSQL_PASS")
+        or env.get("DB_PASSWORD")
+        or env.get("MYSQL_PASSWORD")
+        or env.get("DB_PASS")
+        or env.get("MYSQL_PASS")
+        or ""
+    )
+    database = (
+        os.getenv("DB_NAME")
+        or os.getenv("MYSQL_DATABASE")
+        or os.getenv("MYSQL_DB")
+        or env.get("DB_NAME")
+        or env.get("MYSQL_DATABASE")
+        or env.get("MYSQL_DB")
+        or "kugo"
+    )
+    port = int(
+        os.getenv("DB_PORT")
+        or os.getenv("MYSQL_PORT")
+        or env.get("DB_PORT")
+        or env.get("MYSQL_PORT")
+        or "3306"
+    )
+
+    return pymysql.connect(
+        host=host,
+        user=user,
+        password=password,
+        database=database,
+        port=port,
+        charset="utf8mb4",
+        cursorclass=pymysql.cursors.DictCursor,
+        autocommit=True,
+    )
+
+
+def _koko_check_recharge_duplicate_override():
+    from flask import request, jsonify
+
+    data = request.get_json(silent=True) or {}
+    if not data:
+        try:
+            data = request.form.to_dict() or {}
+        except Exception:
+            data = {}
+
+    phone = str(data.get("phone") or data.get("tel") or "").strip()
+    code = str(data.get("code") or data.get("yzm") or "").strip()
+    order_id = str(data.get("order_id") or data.get("orderID") or data.get("orderid") or "").strip()
+    source = str(data.get("source") or "tel").strip()
+
+    if not phone:
+        return jsonify({"duplicate": False, "reason": "missing_phone"})
+
+    # 这里只拦截“正式提交记录”
+    # 不拦截：
+    # 1. 发验证码记录：yzm 为空 / r_status=已发送
+    # 2. 待确认占位任务：task_source=user_data_pending_confirm / r_status=待确认
+    # 3. zhanghu=no 的记录
+    try:
+        conn = _koko_get_duplicate_db_conn()
+        with conn.cursor() as cursor:
+            if source == "tel":
+                where = [
+                    "tel=%s",
+                    "create_date >= NOW() - INTERVAL 2 MINUTE",
+                    "COALESCE(yzm, '') <> ''",
+                    "COALESCE(zhanghu, '') <> 'no'",
+                    "COALESCE(r_status, '') NOT IN ('待确认', '已发送')",
+                    "COALESCE(task_source, '') <> 'user_data_pending_confirm'",
+                ]
+                params = [phone]
+
+                if code:
+                    where.append("yzm=%s")
+                    params.append(code)
+
+                if order_id:
+                    where.append("orderID=%s")
+                    params.append(order_id)
+
+                sql = """
+                    SELECT id,tel,yzm,orderID,zhanghu,r_status,task_source,create_date
+                    FROM tel_data
+                    WHERE """ + "\n                      AND ".join(where) + """
+                    ORDER BY id DESC
+                    LIMIT 1
+                """
+
+                cursor.execute(sql, params)
+                row = cursor.fetchone()
+
+                if row:
+                    return jsonify({
+                        "duplicate": True,
+                        "reason": "formal_tel_submit_within_2_minutes",
+                        "matched_id": row.get("id"),
+                    })
+
+                return jsonify({
+                    "duplicate": False,
+                    "reason": "no_formal_tel_submit_within_2_minutes",
+                })
+
+            # 非 tel 来源，不用 tel_data 发码/待确认记录拦截前端确认提交
+            return jsonify({
+                "duplicate": False,
+                "reason": "non_tel_source_skip",
+            })
+
+    except Exception as e:
+        # 安全原则：重复检查失败时不阻断正式提交，只返回 false，同时写日志
+        try:
+            app.logger.exception("check_recharge_duplicate override failed")
+        except Exception:
+            pass
+        return jsonify({
+            "duplicate": False,
+            "reason": "duplicate_check_error_skip",
+            "error": str(e),
+        })
+
+
+try:
+    app.view_functions["check_recharge_duplicate"] = _koko_check_recharge_duplicate_override
+    print("[KOKO_OVERRIDE_CHECK_RECHARGE_DUPLICATE] endpoint override installed")
+except Exception as e:
+    print("[KOKO_OVERRIDE_CHECK_RECHARGE_DUPLICATE] install failed:", e)
+# KOKO_OVERRIDE_CHECK_RECHARGE_DUPLICATE_END
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=9999, debug=False)
