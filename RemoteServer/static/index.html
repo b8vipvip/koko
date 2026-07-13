@@ -208,8 +208,8 @@ layui.use(['layer'], function(){
       'hh3': [21.8, 23.8, 27.8],
       'hh12': [92.8, 115],
       'cj1': [9.9,11.8, 12.9, 14.9, 18.8],
-      'cj3': [32.8, 52.8],
-      'cj12': [125, 128, 168],
+      'cj3': [38.8, 68.8],
+      'cj12': [158, 168],
 	  'ct1': [8.8, 9.9, 14.9]
     };
 
@@ -259,6 +259,10 @@ layui.use(['layer'], function(){
 
   document.getElementById('add_agent_btn').addEventListener('click', function () {
     const agentCode = agentCodeInput.value.trim();
+    if (!agentCode) {
+      layer.msg('普通用户无需填写代理简称；如需新增代理，请先输入代理英文简称。');
+      return;
+    }
     if (!agentCodePattern.test(agentCode)) {
       layer.alert('代理英文简称只能包含英文、数字、下划线、中横线，长度为 1 到 30。');
       return;
@@ -293,11 +297,29 @@ layui.use(['layer'], function(){
   renderAgentCodes();
 
   function getOwnershipPayload() {
-    const agentCode = ownershipSelect.value;
-    if (!agentCode) {
-      return { source_type: 'retail', agent_id: 0, agent_code: '', agent_name: '' };
+    // 业务提交/提取时只读取“兑换码归属”下拉框，不读取代理输入框。
+    // 普通用户 value 为空，不需要也不允许校验 agent_code_input。
+    const selectedAgentCode = (ownershipSelect.value || '').trim();
+
+    if (!selectedAgentCode) {
+      return {
+        source_type: 'retail',
+        agent_id: 0,
+        agent_code: '',
+        agent_name: ''
+      };
     }
-    return { source_type: 'agent', agent_code: agentCode, agent_name: agentCode };
+
+    if (!agentCodePattern.test(selectedAgentCode)) {
+      layer.alert('代理英文简称只能包含英文、数字、下划线、中横线，长度为 1 到 30。');
+      return null;
+    }
+
+    return {
+      source_type: 'agent',
+      agent_code: selectedAgentCode,
+      agent_name: selectedAgentCode
+    };
   }
 
   let isSubmitting = false;
@@ -344,6 +366,11 @@ layui.use(['layer'], function(){
       return;
     }
 
+    const ownershipPayload = getOwnershipPayload();
+    if (!ownershipPayload) {
+      return;
+    }
+
     isSubmitting = true;
     const submitBtn = document.getElementById('submit_btn');
     submitBtn.disabled = true;
@@ -374,7 +401,7 @@ layui.use(['layer'], function(){
         order_type: type,
         order_price: price,
         warehouse: warehouse,
-        ...getOwnershipPayload()
+        ...ownershipPayload
       })
     })
     .then(res => res.json())
@@ -420,6 +447,11 @@ layui.use(['layer'], function(){
       return;
     }
 
+    const ownershipPayload = getOwnershipPayload();
+    if (!ownershipPayload) {
+      return;
+    }
+
     isSubmitting = true;
     document.getElementById('extract_btn').disabled = true;
 
@@ -447,7 +479,8 @@ layui.use(['layer'], function(){
         order_count: count,
         order_type: type,
         order_price: price,
-        warehouse: warehouse
+        warehouse: warehouse,
+        ...ownershipPayload
       })
     })
     .then(res => res.json())
@@ -524,8 +557,20 @@ layui.use(['layer'], function(){
       `
     });
 
+    const ownershipPayload = getOwnershipPayload();
+    if (!ownershipPayload) {
+      isSubmitting = false;
+      btn.disabled = false;
+      btn.textContent = '批量添加券码';
+      return;
+    }
+
     const fd = new FormData();
     fd.append("codes", codes.join("\n"));
+    fd.append("source_type", ownershipPayload.source_type || 'retail');
+    fd.append("agent_id", ownershipPayload.agent_id || 0);
+    fd.append("agent_code", ownershipPayload.agent_code || '');
+    fd.append("agent_name", ownershipPayload.agent_name || '');
 
     fetch("/code_upload_batch", {
       method: "POST",
