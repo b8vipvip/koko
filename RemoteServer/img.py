@@ -27,15 +27,72 @@ import sys
 # 计算 img.py 文件的所在目录，并加载同目录/当前目录中的 .env。
 base_dir = os.path.dirname(os.path.abspath(__file__))
 
-# 统一运行日志：模块内所有 print 同时输出到控制台和 img_runtime.log。
+# 先加载 .env，让日志大小、保留数量等配置可以写在 .env 里。
+load_dotenv(os.path.join(base_dir, '.env'))
+load_dotenv()
+
+# ----------------- 轻量日志：控制台正常显示，文件日志自动轮转 -----------------
 runtime_log_path = os.path.join(base_dir, "img_runtime.log")
 _runtime_log_lock = threading.Lock()
 _console_print = print
 
 
+def _env_bool(name, default="1"):
+    return str(os.getenv(name, default)).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _env_int_raw(name, default):
+    try:
+        return int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return int(default)
+
+
+LOG_TO_FILE = _env_bool("LOG_TO_FILE", "1")
+LOG_MAX_BYTES = max(1, _env_int_raw("LOG_MAX_MB", 20)) * 1024 * 1024
+LOG_BACKUP_COUNT = max(1, _env_int_raw("LOG_BACKUP_COUNT", 3))
+
+
+def rotate_log_file(path, max_bytes=None, backup_count=None):
+    """日志超过指定大小后自动轮转：xxx.log -> xxx.log.1 -> xxx.log.2。"""
+    max_bytes = max_bytes or LOG_MAX_BYTES
+    backup_count = backup_count or LOG_BACKUP_COUNT
+    try:
+        if not path or not os.path.exists(path) or os.path.getsize(path) < max_bytes:
+            return
+        for idx in range(backup_count - 1, 0, -1):
+            src = f"{path}.{idx}"
+            dst = f"{path}.{idx + 1}"
+            if os.path.exists(src):
+                if idx + 1 > backup_count:
+                    os.remove(src)
+                else:
+                    os.replace(src, dst)
+        os.replace(path, f"{path}.1")
+    except Exception as rotate_exc:
+        _console_print(f"日志轮转失败: {path} | {rotate_exc}", file=sys.stderr)
+
+
+def append_text_log(path, message):
+    """写文本日志前先做大小轮转。"""
+    try:
+        folder = os.path.dirname(path)
+        if folder:
+            os.makedirs(folder, exist_ok=True)
+        rotate_log_file(path)
+        with open(path, "a", encoding="utf-8") as log_file:
+            log_file.write(message)
+            log_file.flush()
+    except Exception as log_exc:
+        _console_print(f"写日志失败: {path} | {log_exc}", file=sys.stderr)
+
+
 def print(*args, **kwargs):
-    """将控制台 print 内容同步写入 img_runtime.log，不改变原有控制台行为。"""
+    """控制台仍正常打印；文件日志写入 img_runtime.log，且自动轮转。"""
     _console_print(*args, **kwargs)
+
+    if not LOG_TO_FILE:
+        return
 
     output_file = kwargs.get("file")
     if output_file not in (None, sys.stdout, sys.stderr):
@@ -44,15 +101,9 @@ def print(*args, **kwargs):
     sep = kwargs.get("sep", " ")
     end = kwargs.get("end", "\n")
     message = sep.join(str(arg) for arg in args) + end
-    try:
-        with _runtime_log_lock:
-            with open(runtime_log_path, "a", encoding="utf-8") as log_file:
-                log_file.write(message)
-                log_file.flush()
-    except Exception as log_exc:
-        _console_print(f"写运行日志失败: {log_exc}", file=sys.stderr)
-load_dotenv(os.path.join(base_dir, '.env'))
-load_dotenv()
+    with _runtime_log_lock:
+        append_text_log(runtime_log_path, message)
+
 
 # 静态文件夹设置为绝对路径
 static_dir = os.path.join(base_dir, 'static')
@@ -103,14 +154,13 @@ startup_log_path = os.path.join(LOG_DIR, "startup_tools.log")
 
 def startup_log(msg):
     try:
-        os.makedirs(LOG_DIR, exist_ok=True)
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         line = f"{now} {msg}"
         print(line)
-        with open(startup_log_path, "a", encoding="utf-8") as f:
-            f.write(line + "\n")
+        append_text_log(startup_log_path, line + "\n")
     except Exception as e:
         print(f"写启动日志失败: {e}")
+
 
 
 def is_local_port_open(port, host="127.0.0.1", timeout=1):
@@ -315,8 +365,21 @@ def format_mapped_adb_devices():
     return "，".join(codes) if codes else "无"
 
 
+_last_mapped_adb_devices_text = None
+_last_mapped_adb_devices_log_at = 0
+
+
 def log_current_mapped_adb_devices():
-    startup_log(f"【ADB反向端口】当前设备：{format_mapped_adb_devices()}")
+    """ADB 状态不再每轮刷屏；设备变化时立即记录，未变化时按间隔记录。"""
+    global _last_mapped_adb_devices_text, _last_mapped_adb_devices_log_at
+    current_text = format_mapped_adb_devices()
+    now_ts = time.time()
+    interval = max(10, _env_int_raw("ADB_STATE_LOG_INTERVAL", 60))
+    if current_text != _last_mapped_adb_devices_text or now_ts - _last_mapped_adb_devices_log_at >= interval:
+        startup_log(f"【ADB反向端口】当前设备：{current_text}")
+        _last_mapped_adb_devices_text = current_text
+        _last_mapped_adb_devices_log_at = now_ts
+
 
 
 def parse_adb_reverse_list(output):
@@ -410,11 +473,53 @@ def adb_reverse_monitor_loop():
         time.sleep(ADB_REVERSE_INTERVAL)
 
 
+
+def cleanup_old_log_files_once():
+    """清理旧的轮转日志和滑块调试图片，防止目录长期膨胀。"""
+    keep_days = max(1, _env_int_raw("LOG_KEEP_DAYS", 7))
+    cutoff = time.time() - keep_days * 86400
+    folders = {base_dir, LOG_DIR}
+    patterns = (
+        "*.log.*",
+        "startup_tools.log.*",
+        "slider.txt.*",
+        "generic_image_task.txt.*",
+        "gap_debug_*.png",
+        "gap_mask_*.png",
+        "gap_input_*.png",
+        "gap_fail_*.png",
+    )
+    for folder in list(folders):
+        try:
+            if not folder or not os.path.isdir(folder):
+                continue
+            for name in os.listdir(folder):
+                full_path = os.path.join(folder, name)
+                if not os.path.isfile(full_path):
+                    continue
+                matched = False
+                for pat in patterns:
+                    if __import__('fnmatch').fnmatch(name, pat):
+                        matched = True
+                        break
+                if matched and os.path.getmtime(full_path) < cutoff:
+                    os.remove(full_path)
+        except Exception as exc:
+            print(f"⚠️ 清理旧日志失败: {folder} | {exc}")
+
+
+def cleanup_old_log_files_loop():
+    while True:
+        cleanup_old_log_files_once()
+        time.sleep(max(600, _env_int_raw("LOG_CLEANUP_INTERVAL_SECONDS", 3600)))
+
+
 def start_startup_tools():
     threading.Thread(target=mysql_ssh_tunnel_loop, daemon=True).start()
     threading.Thread(target=adb_reverse_monitor_loop, daemon=True).start()
+    threading.Thread(target=cleanup_old_log_files_loop, daemon=True).start()
 
-    startup_log("【启动工具】MySQL隧道线程已启动，ADB反向端口后台守护已启动")
+    startup_log("【启动工具】MySQL隧道线程已启动，ADB反向端口后台守护和日志清理线程已启动")
 
 # ----------------- MySQL 数据库配置 -----------------
 db_config = {
@@ -656,8 +761,31 @@ def insert_into_order_data(cursor, columns, rows):
         print("⚠️ 无需要插入order_data表的数据")
         return False
 
-    # 去掉 id 字段
-    columns_without_id = [col for col in columns if col != 'id']
+    # 只插入 order_data 真实存在的字段，避免 source_type / agent_id 等字段缺失导致整批失败
+    cursor.execute("SHOW COLUMNS FROM `order_data`")
+    show_rows = cursor.fetchall()
+    dest_columns = set()
+    for col in show_rows:
+        if isinstance(col, dict):
+            dest_columns.add(col.get("Field"))
+        else:
+            dest_columns.add(col[0])
+
+    columns_without_id = [
+        col for col in columns
+        if col != "id" and col in dest_columns
+    ]
+
+    skipped_columns = [
+        col for col in columns
+        if col != "id" and col not in dest_columns
+    ]
+    if skipped_columns:
+        print("⚠️ order_data 缺少以下字段，已跳过同步这些字段: " + ",".join(skipped_columns))
+
+    if not columns_without_id:
+        print("❌ order_data 没有可插入字段")
+        return False
 
     insert_cols = ', '.join(f'`{c}`' for c in columns_without_id)
     placeholders = ', '.join(['%s'] * len(columns_without_id))
@@ -669,7 +797,7 @@ def insert_into_order_data(cursor, columns, rows):
 
     values = []
     for row in rows:
-        values.append(tuple(row[col] for col in columns_without_id))
+        values.append(tuple(row.get(col) for col in columns_without_id))
 
     try:
         cursor.executemany(insert_sql, values)
@@ -678,6 +806,8 @@ def insert_into_order_data(cursor, columns, rows):
     except Exception as e:
         print(f"❌ 插入 order_data 表失败: {e}")
         return False
+
+
 def sync_order_data_anj_to_order_data():
     """在同一 MySQL 事务内完成 order_data_anj → order_data 同步和状态更新。"""
     conn = None
@@ -912,20 +1042,34 @@ def heartbeat_loop():
 @app.before_request
 def log_request_started():
     request._img_started_at = time.perf_counter()
-    print(
-        f"📥 请求进入: {request.method} {request.path} "
-        f"remote={request.remote_addr} args={request.args.to_dict(flat=False)}"
-    )
+    if os.getenv("REQUEST_LOG_MODE", "error").strip().lower() == "all":
+        print(
+            f"📥 请求进入: {request.method} {request.path} "
+            f"remote={request.remote_addr} args={request.args.to_dict(flat=False)}"
+        )
 
 
 @app.after_request
 def log_request_finished(response):
     started_at = getattr(request, "_img_started_at", time.perf_counter())
     cost_ms = (time.perf_counter() - started_at) * 1000
-    print(
-        f"📤 请求完成: {request.method} {request.path} "
-        f"status={response.status_code} cost={cost_ms:.2f}ms"
-    )
+    mode = os.getenv("REQUEST_LOG_MODE", "error").strip().lower()
+    slow_ms = max(1, _env_int_raw("REQUEST_SLOW_MS", 1000))
+    should_log = False
+    if mode == "all":
+        should_log = True
+    elif mode == "slow" and cost_ms >= slow_ms:
+        should_log = True
+    elif mode == "error" and (response.status_code >= 400 or cost_ms >= slow_ms):
+        should_log = True
+    elif mode == "off":
+        should_log = False
+
+    if should_log:
+        print(
+            f"📤 请求完成: {request.method} {request.path} "
+            f"status={response.status_code} cost={cost_ms:.2f}ms"
+        )
     return response
 
 
@@ -1543,12 +1687,13 @@ def analyze_image():
         
 def write_generic_log(task_text: str, local_image_path: str, response_text: str):
     try:
+        if not _env_bool("GENERIC_IMAGE_LOG_ENABLED", "1"):
+            return
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         generic_log_path = os.path.join(LOG_DIR, "generic_image_task.txt")
-        os.makedirs(LOG_DIR, exist_ok=True)
-        with open(generic_log_path, "a", encoding="utf-8") as f:
-            f.write(f"{now_str} | task={task_text} | file={os.path.basename(local_image_path)} | resp={response_text}\n")
-        print(f"📝 已记录到 generic_image_task.txt")
+        line = f"{now_str} | task={task_text} | file={os.path.basename(local_image_path)} | resp={response_text}\n"
+        append_text_log(generic_log_path, line)
+        print("📝 已记录到 generic_image_task.txt")
     except Exception as log_err:
         print(f"⚠️ 写入 generic_image_task.txt 失败: {log_err}")
 
@@ -1773,15 +1918,16 @@ def ensure_coords_list(coords_result):
     return None
 
 def write_mode_log(log_filename: str, mode: str, payload: dict):
-    """统一写模式日志，避免不同识别逻辑互相混淆。"""
+    """统一写模式日志，支持开关和轮转，避免 slider.txt 无限增长。"""
     try:
+        if not _env_bool("MODE_LOG_ENABLED", "1"):
+            return
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        os.makedirs(LOG_DIR, exist_ok=True)
         log_path = os.path.join(LOG_DIR, log_filename)
         line = f"{now_str} | mode={mode} | {json.dumps(payload, ensure_ascii=False)}\n"
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(line)
-        print(f"📝 已记录到 {log_filename}: {line.strip()}")
+        append_text_log(log_path, line)
+        # 不再把完整 payload 打到主日志，避免 img_runtime.log 被重复放大。
+        print(f"📝 已记录到 {log_filename}")
     except Exception as log_err:
         print(f"⚠️ 写入 {log_filename} 失败: {log_err}")
 
@@ -1804,7 +1950,7 @@ def handle_slider_coords(image_path: str):
             print(f"❌ 文件不存在: {local_image_path}")
             return "0,0,0,0"
 
-        cx, cy, box, score = find_gap_center_local(local_image_path, debug_save=True)
+        cx, cy, box, score = find_gap_center_local(local_image_path, debug_save=_env_bool("SLIDER_DEBUG_SAVE", "0"))
         coords_raw = [{"x": int(cx), "y": int(cy)}]
 
         print(f"✅ 本地识别缺口中心(raw): ({cx},{cy}) box={box} score={score:.0f}")
@@ -2258,25 +2404,50 @@ def update_re_status():
 @app.route('/c_status', methods=['POST'])
 @require_local_token
 def get_c_status():
-    record_id = request.get_data(as_text=True).strip()
+    """
+    按键精灵安全版：
+    - 永远 HTTP 200
+    - 永远返回可 JsonToTable 的 JSON
+    - c_status 为 NULL、ID 不存在、数据库异常、请求体为空时统一返回默认值 0
+    """
+    record_id = (request.get_data(as_text=True) or '').strip()
+    safe_default = str(os.getenv("C_STATUS_SAFE_DEFAULT", "0")).strip() or "0"
+
+    def _safe_c_status_response(value=None):
+        if value is None or str(value).strip() == "":
+            value = safe_default
+        return jsonify({'c_status': str(value).strip()}), 200
+
+    if not record_id:
+        print(f"⚠️ /c_status 收到空ID，返回默认 c_status={safe_default}")
+        return _safe_c_status_response(safe_default)
+
     conn = None
     cursor = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor(pymysql.cursors.Cursor)
-        cursor.execute("SELECT c_status FROM tel_data WHERE id=%s", (record_id,))
+        cursor.execute("SELECT c_status FROM tel_data WHERE id=%s LIMIT 1", (record_id,))
         row = cursor.fetchone()
         if not row:
-            return jsonify({'error': 'ID not found'}), 404
-        return jsonify({'c_status': row[0]})
+            print(f"⚠️ /c_status ID不存在：{record_id}，返回默认 c_status={safe_default}")
+            return _safe_c_status_response(safe_default)
+        return _safe_c_status_response(row[0])
     except Exception as exc:
-        print(f"❌ c_status 异常：{exc}")
-        return jsonify({'error': str(exc)}), 500
+        print(f"❌ /c_status 异常，已返回默认 c_status={safe_default}: {exc}")
+        return _safe_c_status_response(safe_default)
     finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
+        try:
+            if cursor:
+                cursor.close()
+        except Exception:
+            pass
+        try:
+            if conn:
+                conn.close()
+        except Exception:
+            pass
+
 
 
 @app.route('/update_r_status', methods=['POST'])
@@ -2312,13 +2483,35 @@ def update_r_status():
 @app.route('/img_updata', methods=['POST'])
 @require_local_token
 def img_updata():
-    parts = request.get_data(as_text=True).split(',', 3)
+    raw = request.get_data(as_text=True) or ''
+    parts = raw.split(',', 3)
+
     if len(parts) != 4:
-        return {'code': '400', 'msg': '数据格式不正确'}, 400
+        # 按键精灵不方便处理 JSON 错误，这里返回空，避免中断
+        print(f"⚠️ img_updata 数据格式不正确: {raw!r}")
+        return '', 200
 
     tel_id, status, cz_status, img_name = parts
+
+    def _safe_int(v, default=0):
+        v = str(v or '').strip()
+        import re as _koko_re
+        m = _koko_re.search(r'-?\d+', v)
+        if not m:
+            return default
+        try:
+            return int(m.group(0))
+        except Exception:
+            return default
+
+    tel_id = _safe_int(tel_id, 0)
+    status = _safe_int(status, 0)
+    cz_status = _safe_int(cz_status, 0)
+    img_name = str(img_name or '').strip()
+
     conn = None
     cursor = None
+
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -2328,16 +2521,31 @@ def img_updata():
         """, (tel_id, img_name, status, cz_status))
         conn.commit()
         return {'code': '200', 'data': '1'}
+
     except Exception as exc:
         if conn:
-            conn.rollback()
-        print(f"❌ img_updata 异常：{exc}")
-        return {'code': '500', 'msg': str(exc)}, 500
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+        print(f"❌ img_updata 异常，已对按键精灵返回空值：{exc}")
+
+        # 给按键精灵返回空字符串，不返回 error 文本
+        return '', 200
+
     finally:
         if cursor:
-            cursor.close()
+            try:
+                cursor.close()
+            except Exception:
+                pass
         if conn:
-            conn.close()
+            try:
+                conn.close()
+            except Exception:
+                pass
+
 
 @app.route('/code_upload_batch', methods=['POST'])
 @require_local_token
@@ -2464,6 +2672,716 @@ def code_fetch():
 
   
 # 启动 Flask 应用与后台任务并行运行
+
+
+# KOKO_IMG_MYSQL_SAFE_PATCH_V1_START
+# 作用：
+# 1. MySQL 断联/隧道断联时，get_db_connection 自动重试
+# 2. 给按键精灵调用的接口，如果发生 MySQL 错误，统一返回空字符串
+# 3. 避免按键精灵收到 error: (2013, ...) 这种无法处理的文本
+
+import os as _koko_os
+import time as _koko_time
+import subprocess as _koko_subprocess
+import traceback as _koko_traceback
+
+try:
+    import pymysql as _koko_pymysql
+except Exception:
+    _koko_pymysql = None
+
+try:
+    from flask import request as _koko_request, Response as _KokoResponse
+except Exception:
+    _koko_request = None
+    _KokoResponse = None
+
+
+_KOKO_KEYWIZARD_SAFE_PATHS = {
+    '/getTelData',
+    '/getTel',
+    '/getTelYzm',
+    '/update_run_status',
+    '/update_tel_status',
+    '/update_tel_statu3',
+    '/update_re_status',
+    '/img_updata',
+    '/uporderid_status',
+    '/orderid_find',
+    '/update_order_data',
+    '/mark_order_used',
+}
+
+
+def _koko_is_mysql_disconnect(exc):
+    text = str(exc).lower()
+
+    keywords = [
+        'lost connection to mysql',
+        'can\'t connect to mysql',
+        'can’t connect to mysql',
+        'mysql server has gone away',
+        'connection refused',
+        'actively refused',
+        '远程主机强迫关闭',
+        '目标计算机积极拒绝',
+        'winerror 10054',
+        'winerror 10061',
+        '2003',
+        '2006',
+        '2013',
+        '2055',
+    ]
+
+    if any(k in text for k in keywords):
+        return True
+
+    try:
+        code = exc.args[0]
+        return int(code) in (2003, 2006, 2013, 2014, 2055)
+    except Exception:
+        return False
+
+
+def _koko_try_repair_mysql_tunnel():
+    """
+    可选：如果你有本地 SSH/Plink 隧道重连命令，可以设置环境变量：
+    KOKO_MYSQL_TUNNEL_REPAIR_CMD
+
+    例如：
+    set KOKO_MYSQL_TUNNEL_REPAIR_CMD=你的重连命令
+
+    没设置时这里只做快速重试，不执行外部命令。
+    """
+    cmd = _koko_os.environ.get('KOKO_MYSQL_TUNNEL_REPAIR_CMD', '').strip()
+    if not cmd:
+        return
+
+    try:
+        print(f"🔁 MySQL 隧道疑似断联，执行修复命令: {cmd}")
+        _koko_subprocess.Popen(
+            cmd,
+            shell=True,
+            stdout=_koko_subprocess.DEVNULL,
+            stderr=_koko_subprocess.DEVNULL
+        )
+    except Exception as e:
+        print(f"⚠️ MySQL 隧道修复命令执行失败: {e}")
+
+
+def _koko_empty_for_keywizard():
+    if _KokoResponse:
+        return _KokoResponse('', status=200, mimetype='text/plain')
+    return '', 200
+
+
+# 包装原 get_db_connection，让所有接口自动受益
+try:
+    _koko_original_get_db_connection = get_db_connection
+
+    def get_db_connection(*args, **kwargs):
+        last_exc = None
+
+        for attempt in range(1, 4):
+            try:
+                conn = _koko_original_get_db_connection(*args, **kwargs)
+
+                # 连接拿到后先 ping 一下，避免拿到半死连接
+                try:
+                    if hasattr(conn, 'ping'):
+                        conn.ping(reconnect=True)
+                except TypeError:
+                    conn.ping()
+
+                return conn
+
+            except Exception as exc:
+                last_exc = exc
+
+                if _koko_is_mysql_disconnect(exc):
+                    print(f"⚠️ MySQL 连接异常，第 {attempt}/3 次重试：{exc}")
+                    _koko_try_repair_mysql_tunnel()
+                    _koko_time.sleep(0.35 * attempt)
+                    continue
+
+                raise
+
+        print(f"❌ MySQL 连接重试失败：{last_exc}")
+        raise last_exc
+
+    print("✅ KOKO_IMG_MYSQL_SAFE_PATCH_V1: get_db_connection 已包装")
+
+except NameError:
+    print("⚠️ KOKO_IMG_MYSQL_SAFE_PATCH_V1: 未找到 get_db_connection，跳过包装")
+
+
+# 过滤按键精灵接口错误响应：
+# 如果接口内部已经 catch 了异常并返回 error: xxx，这里统一改成空字符串。
+try:
+    @app.after_request
+    def _koko_filter_keywizard_mysql_error_response(response):
+        try:
+            if not _koko_request:
+                return response
+
+            path = _koko_request.path
+
+            if path not in _KOKO_KEYWIZARD_SAFE_PATHS:
+                return response
+
+            body = ''
+            try:
+                body = response.get_data(as_text=True) or ''
+            except Exception:
+                body = ''
+
+            low = body.lower()
+
+            is_bad = (
+                response.status_code >= 500
+                or low.startswith('error:')
+                or 'lost connection to mysql' in low
+                or "can't connect to mysql" in low
+                or 'mysql server has gone away' in low
+                or 'winerror 10054' in low
+                or 'winerror 10061' in low
+                or '远程主机强迫关闭' in body
+                or '目标计算机积极拒绝' in body
+            )
+
+            if is_bad:
+                print(f"⚠️ 已过滤按键精灵接口错误输出: {path} status={response.status_code} body={body[:200]!r}")
+                return _koko_empty_for_keywizard()
+
+            return response
+
+        except Exception as exc:
+            print(f"⚠️ 过滤按键精灵错误响应异常：{exc}")
+            return response
+
+    print("✅ KOKO_IMG_MYSQL_SAFE_PATCH_V1: after_request 错误过滤已启用")
+
+except Exception as exc:
+    print(f"⚠️ KOKO_IMG_MYSQL_SAFE_PATCH_V1: after_request 注入失败：{exc}")
+
+
+# 兜底捕获未处理异常：只对按键精灵接口返回空，其他接口保持 500
+try:
+    @app.errorhandler(Exception)
+    def _koko_keywizard_exception_handler(exc):
+        try:
+            path = _koko_request.path if _koko_request else ''
+
+            if path in _KOKO_KEYWIZARD_SAFE_PATHS:
+                print(f"❌ 按键精灵接口未处理异常，已返回空值: {path} {exc}")
+                if _koko_is_mysql_disconnect(exc):
+                    _koko_try_repair_mysql_tunnel()
+                return _koko_empty_for_keywizard()
+
+        except Exception:
+            pass
+
+        print("❌ 未处理异常：")
+        print(_koko_traceback.format_exc())
+
+        return {'code': '500', 'msg': 'server error'}, 500
+
+    print("✅ KOKO_IMG_MYSQL_SAFE_PATCH_V1: errorhandler 已启用")
+
+except Exception as exc:
+    print(f"⚠️ KOKO_IMG_MYSQL_SAFE_PATCH_V1: errorhandler 注入失败：{exc}")
+
+# KOKO_IMG_MYSQL_SAFE_PATCH_V1_END
+
+
+
+# KOKO_MYSQL_TUNNEL_MONITOR_V1_START
+# MySQL 隧道后台监控：
+# 1. 定时检测 127.0.0.1:13306 是否可连接
+# 2. 可选执行数据库 SELECT 1 验证
+# 3. 断开时写日志并尝试执行重建命令
+#
+# 重建命令配置方式：
+#   在 img.py 同目录创建 mysql_tunnel_repair_cmd.txt
+#   里面写你平时启动 MySQL 隧道的命令
+#
+# 或设置环境变量：
+#   KOKO_MYSQL_TUNNEL_REPAIR_CMD
+
+import os as _koko_tunnel_os
+import socket as _koko_tunnel_socket
+import time as _koko_tunnel_time
+import threading as _koko_tunnel_threading
+import subprocess as _koko_tunnel_subprocess
+from pathlib import Path as _koko_tunnel_Path
+
+_KOKO_MYSQL_TUNNEL_HOST = _koko_tunnel_os.environ.get("KOKO_MYSQL_TUNNEL_HOST", "127.0.0.1")
+_KOKO_MYSQL_TUNNEL_PORT = int(_koko_tunnel_os.environ.get("KOKO_MYSQL_TUNNEL_PORT", "13306"))
+_KOKO_MYSQL_TUNNEL_INTERVAL = int(_koko_tunnel_os.environ.get("KOKO_MYSQL_TUNNEL_INTERVAL", "15"))
+
+# 默认开启数据库级 ping。只想检测端口时，设置 KOKO_MYSQL_TUNNEL_DB_PING=0
+_KOKO_MYSQL_TUNNEL_DB_PING = _koko_tunnel_os.environ.get("KOKO_MYSQL_TUNNEL_DB_PING", "1") != "0"
+
+_KOKO_MYSQL_TUNNEL_STATE = {
+    "last_ok": None,
+    "last_msg": "",
+    "last_normal_log_ts": 0,
+    "repairing": False,
+}
+
+_KOKO_MYSQL_TUNNEL_LOCK = _koko_tunnel_threading.Lock()
+
+
+def _koko_mysql_tunnel_log(msg):
+    try:
+        print(f"{_koko_tunnel_time.strftime('%Y-%m-%d %H:%M:%S')} {msg}", flush=True)
+    except Exception:
+        print(msg, flush=True)
+
+
+def _koko_mysql_tunnel_port_open(timeout=1.2):
+    try:
+        with _koko_tunnel_socket.create_connection(
+            (_KOKO_MYSQL_TUNNEL_HOST, _KOKO_MYSQL_TUNNEL_PORT),
+            timeout=timeout
+        ):
+            return True, ""
+    except Exception as exc:
+        return False, str(exc)
+
+
+def _koko_mysql_tunnel_db_ping():
+    """
+    端口监听不代表 MySQL 查询一定正常。
+    如果 img.py 里存在 get_db_connection，则执行 SELECT 1 做真实数据库验证。
+    """
+    if not _KOKO_MYSQL_TUNNEL_DB_PING:
+        return True, "本机端口已监听"
+
+    fn = globals().get("get_db_connection")
+    if not callable(fn):
+        return True, "本机端口已监听，未找到 get_db_connection，跳过数据库 ping"
+
+    conn = None
+    cur = None
+    try:
+        conn = fn()
+        cur = conn.cursor()
+        cur.execute("SELECT 1")
+        cur.fetchone()
+        return True, "本机端口已监听，数据库 ping 正常"
+    except Exception as exc:
+        return False, f"本机端口已监听，但数据库 ping 失败：{exc}"
+    finally:
+        try:
+            if cur:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            if conn:
+                conn.close()
+        except Exception:
+            pass
+
+
+def _koko_mysql_tunnel_check_once():
+    port_ok, port_err = _koko_mysql_tunnel_port_open()
+
+    if not port_ok:
+        return False, f"本机 {_KOKO_MYSQL_TUNNEL_HOST}:{_KOKO_MYSQL_TUNNEL_PORT} 未监听或不可连接：{port_err}"
+
+    db_ok, db_msg = _koko_mysql_tunnel_db_ping()
+    if not db_ok:
+        return False, db_msg
+
+    return True, db_msg
+
+
+def _koko_mysql_tunnel_get_repair_cmd():
+    cmd = _koko_tunnel_os.environ.get("KOKO_MYSQL_TUNNEL_REPAIR_CMD", "").strip()
+    if cmd:
+        return cmd
+
+    try:
+        base = _koko_tunnel_Path(__file__).resolve().parent
+    except Exception:
+        base = _koko_tunnel_Path(".").resolve()
+
+    p = base / "mysql_tunnel_repair_cmd.txt"
+    if p.exists():
+        try:
+            return p.read_text(encoding="utf-8", errors="ignore").strip()
+        except Exception:
+            return ""
+
+    return ""
+
+
+def _koko_mysql_tunnel_repair():
+    with _KOKO_MYSQL_TUNNEL_LOCK:
+        if _KOKO_MYSQL_TUNNEL_STATE.get("repairing"):
+            return
+
+        _KOKO_MYSQL_TUNNEL_STATE["repairing"] = True
+
+    try:
+        cmd = _koko_mysql_tunnel_get_repair_cmd()
+
+        if not cmd:
+            _koko_mysql_tunnel_log(
+                "⚠️ 【MySQL隧道】未配置重建命令，只能等待外部隧道恢复。"
+                "请在 img.py 同目录创建 mysql_tunnel_repair_cmd.txt"
+            )
+            return
+
+        _koko_mysql_tunnel_log(f"🔁 【MySQL隧道】执行重建命令：{cmd}")
+
+        _koko_tunnel_subprocess.Popen(
+            cmd,
+            shell=True,
+            stdout=_koko_tunnel_subprocess.DEVNULL,
+            stderr=_koko_tunnel_subprocess.DEVNULL
+        )
+
+    except Exception as exc:
+        _koko_mysql_tunnel_log(f"❌ 【MySQL隧道】重建命令执行异常：{exc}")
+
+    finally:
+        with _KOKO_MYSQL_TUNNEL_LOCK:
+            _KOKO_MYSQL_TUNNEL_STATE["repairing"] = False
+
+
+def _koko_mysql_tunnel_monitor_loop():
+    _koko_mysql_tunnel_log(
+        f"✅ 【MySQL隧道】监控已启动：{_KOKO_MYSQL_TUNNEL_HOST}:{_KOKO_MYSQL_TUNNEL_PORT} "
+        f"interval={_KOKO_MYSQL_TUNNEL_INTERVAL}s db_ping={int(_KOKO_MYSQL_TUNNEL_DB_PING)}"
+    )
+
+    while True:
+        ok, msg = _koko_mysql_tunnel_check_once()
+        now = _koko_tunnel_time.time()
+        last_ok = _KOKO_MYSQL_TUNNEL_STATE.get("last_ok")
+
+        if ok:
+            # 首次正常、断线后恢复、每 5 分钟心跳，才输出正常日志，避免刷屏
+            if last_ok is not True:
+                if last_ok is False:
+                    _koko_mysql_tunnel_log(
+                        f"✅ 【MySQL隧道】连接恢复：本机 {_KOKO_MYSQL_TUNNEL_HOST}:{_KOKO_MYSQL_TUNNEL_PORT} 已恢复，{msg}"
+                    )
+                else:
+                    _koko_mysql_tunnel_log(
+                        f"✅ 【MySQL隧道】连接正常：本机 {_KOKO_MYSQL_TUNNEL_HOST}:{_KOKO_MYSQL_TUNNEL_PORT} 已监听，{msg}"
+                    )
+                _KOKO_MYSQL_TUNNEL_STATE["last_normal_log_ts"] = now
+
+            elif now - float(_KOKO_MYSQL_TUNNEL_STATE.get("last_normal_log_ts") or 0) >= 300:
+                _koko_mysql_tunnel_log(
+                    f"✅ 【MySQL隧道】连接正常：本机 {_KOKO_MYSQL_TUNNEL_HOST}:{_KOKO_MYSQL_TUNNEL_PORT} 已监听，{msg}"
+                )
+                _KOKO_MYSQL_TUNNEL_STATE["last_normal_log_ts"] = now
+
+        else:
+            if last_ok is not False or msg != _KOKO_MYSQL_TUNNEL_STATE.get("last_msg"):
+                _koko_mysql_tunnel_log(f"❌ 【MySQL隧道】连接断开：{msg}")
+
+            _koko_mysql_tunnel_repair()
+
+            # 给重建命令一点时间，然后立即复查一次
+            _koko_tunnel_time.sleep(2)
+            ok2, msg2 = _koko_mysql_tunnel_check_once()
+
+            if ok2:
+                _koko_mysql_tunnel_log(
+                    f"✅ 【MySQL隧道】连接恢复：本机 {_KOKO_MYSQL_TUNNEL_HOST}:{_KOKO_MYSQL_TUNNEL_PORT} 已恢复，{msg2}"
+                )
+                ok = True
+                msg = msg2
+                _KOKO_MYSQL_TUNNEL_STATE["last_normal_log_ts"] = _koko_tunnel_time.time()
+            else:
+                _koko_mysql_tunnel_log(f"⚠️ 【MySQL隧道】重建后仍未恢复：{msg2}")
+                msg = msg2
+
+        _KOKO_MYSQL_TUNNEL_STATE["last_ok"] = ok
+        _KOKO_MYSQL_TUNNEL_STATE["last_msg"] = msg
+
+        _koko_tunnel_time.sleep(_KOKO_MYSQL_TUNNEL_INTERVAL)
+
+
+def _koko_start_mysql_tunnel_monitor_once():
+    if globals().get("_KOKO_MYSQL_TUNNEL_MONITOR_STARTED"):
+        return
+
+    globals()["_KOKO_MYSQL_TUNNEL_MONITOR_STARTED"] = True
+
+    t = _koko_tunnel_threading.Thread(
+        target=_koko_mysql_tunnel_monitor_loop,
+        name="KOKO-MySQLTunnelMonitor",
+        daemon=True
+    )
+    t.start()
+
+
+_koko_start_mysql_tunnel_monitor_once()
+
+# KOKO_MYSQL_TUNNEL_MONITOR_V1_END
+
+
+
+# KOKO_LOCAL_LONG_LINK_DESC_CONFIG_V1_START
+@app.route('/long_link_desc_config', methods=['GET', 'POST'])
+def long_link_desc_config():
+    conn = None
+    cursor = None
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS system_settings (
+              setting_key varchar(100) NOT NULL,
+              setting_value text,
+              updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              PRIMARY KEY (setting_key)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """)
+
+        if request.method == 'GET':
+            cursor.execute("SELECT setting_value FROM system_settings WHERE setting_key=%s LIMIT 1", ('long_link_desc',))
+            row = cursor.fetchone()
+
+            val = ''
+            if row:
+                if isinstance(row, dict):
+                    val = row.get('setting_value') or ''
+                else:
+                    val = row[0] or ''
+
+            return {'success': True, 'data': {'long_link_desc': val}, 'long_link_desc': val}
+
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            data = request.form.to_dict()
+
+        desc = str(data.get('long_link_desc', '') or '')
+        if len(desc) > 2000:
+            desc = desc[:2000]
+
+        cursor.execute("""
+            INSERT INTO system_settings (setting_key, setting_value, updated_at)
+            VALUES (%s, %s, NOW())
+            ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value), updated_at=NOW()
+        """, ('long_link_desc', desc))
+
+        conn.commit()
+
+        return {'success': True, 'message': '说明保存成功', 'data': {'long_link_desc': desc}, 'long_link_desc': desc}
+
+    except Exception as exc:
+        print(f"❌ long_link_desc_config 异常：{exc}")
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        return {'success': False, 'message': str(exc)}, 500
+
+    finally:
+        if cursor:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+# KOKO_LOCAL_LONG_LINK_DESC_CONFIG_V1_END
+
+
+
+# KOKO_FAVICON_ROUTE_V1_START
+@app.route('/favicon.ico')
+def favicon_ico():
+    return '', 204
+# KOKO_FAVICON_ROUTE_V1_END
+
+
+
+# KOKO_KEYWIZARD_INTERFACE_SAFE_V2_START
+# 按键精灵接口统一安全兜底：
+# 1. 覆盖当前按键精灵实际调用的所有接口。
+# 2. 接口内部异常、MySQL/ADB/隧道抖动、返回 400/500、返回 error 文本、返回空 JSON 时，统一改成按接口约定的安全默认值。
+# 3. 重点避免按键精灵 Url.Get/Url.Post 收到不可解析内容，导致 Encode.JsonToTable 后为 null，再 For each 直接中断。
+try:
+    from flask import Response as _kw_Response, request as _kw_request
+except Exception:
+    _kw_Response = None
+    _kw_request = None
+
+_KW_SAFE_ENDPOINT_DEFAULTS = {
+    '/getTelData':        ('text', ''),
+    '/code_fetch':        ('text', '0'),
+    '/analyze_image':     ('text', '0'),
+    '/update_run_status': ('text', 'ok'),
+    '/update_re_status':  ('text', 'ok'),
+    '/c_status':          ('json', {'c_status': '0'}),
+    '/update_r_status':   ('json', {'code': '200', 'data': '0'}),
+    '/img_updata':        ('json', {'code': '200', 'data': '0'}),
+    '/orderid_find':      ('text', '3'),
+    '/update_order_data': ('text', 'up_result=3'),
+    '/uporderid_status':  ('json', {'success': False, 'mysql_updated': 0, 'sqlite_updated': 0, 'safe_default': True}),
+    '/get_coords':        ('text', '0,0,0,0'),
+    '/code_upload_batch': ('text', 'up_result=3'),
+}
+
+_KW_BAD_BODY_KEYWORDS = (
+    'traceback',
+    '<!doctype html',
+    '<html',
+    'internal server error',
+    'bad request',
+    'not found',
+    'lost connection to mysql',
+    "can't connect to mysql",
+    'mysql server has gone away',
+    'connection refused',
+    'actively refused',
+    'winerror 10054',
+    'winerror 10061',
+    '远程主机强迫关闭',
+    '目标计算机积极拒绝',
+    'database error',
+    'server error',
+)
+
+
+def _kw_plain_response(body='', status=200):
+    body = '' if body is None else str(body)
+    if _kw_Response:
+        return _kw_Response(body, status=status, content_type='text/plain; charset=utf-8')
+    return body, status, {'Content-Type': 'text/plain; charset=utf-8'}
+
+
+def _kw_json_response(payload=None, status=200):
+    payload = payload if isinstance(payload, dict) else {}
+    try:
+        body = json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
+    except Exception:
+        body = '{"ok":false}'
+    if _kw_Response:
+        return _kw_Response(body, status=status, content_type='application/json; charset=utf-8')
+    return body, status, {'Content-Type': 'application/json; charset=utf-8'}
+
+
+def _kw_default_response_for_path(path):
+    kind, default_value = _KW_SAFE_ENDPOINT_DEFAULTS.get(path, ('text', ''))
+    if kind == 'json':
+        return _kw_json_response(default_value, 200)
+    return _kw_plain_response(default_value, 200)
+
+
+def _kw_body_is_bad(path, status_code, body):
+    text = '' if body is None else str(body)
+    low = text.strip().lower()
+
+    if int(status_code or 0) >= 400:
+        return True
+
+    if low == 'null':
+        return True
+
+    if low.startswith('error') or low.startswith('error:'):
+        return True
+
+    if any(keyword in low for keyword in _KW_BAD_BODY_KEYWORDS):
+        return True
+
+    # 这些接口不应返回空；空值会让按键精灵后续 JsonToTable 或字符串判断不稳定。
+    if text.strip() == '' and path not in ('/getTelData',):
+        return True
+
+    return False
+
+
+def _kw_normalize_good_response(path, response, body):
+    """即使接口没报错，也把 c_status=null 这类危险返回修正为安全默认值。"""
+    if path == '/c_status':
+        try:
+            data = json.loads(body or '{}')
+            if not isinstance(data, dict):
+                return _kw_default_response_for_path(path)
+            value = data.get('c_status')
+            if value is None or str(value).strip() == '':
+                return _kw_default_response_for_path(path)
+            return _kw_json_response({'c_status': str(value).strip()}, 200)
+        except Exception:
+            return _kw_default_response_for_path(path)
+
+    # update_r_status/img_updata 成功时保持原 JSON；空或错误由上层兜底。
+    return response
+
+
+try:
+    @app.after_request
+    def _kw_keywizard_safe_after_request_v2(response):
+        try:
+            if not _kw_request:
+                return response
+            path = _kw_request.path
+            if path not in _KW_SAFE_ENDPOINT_DEFAULTS:
+                return response
+
+            try:
+                body = response.get_data(as_text=True) or ''
+            except Exception:
+                body = ''
+
+            if _kw_body_is_bad(path, response.status_code, body):
+                print(f"⚠️ 按键精灵接口安全兜底V2：{path} status={response.status_code} body={body[:200]!r}")
+                return _kw_default_response_for_path(path)
+
+            return _kw_normalize_good_response(path, response, body)
+
+        except Exception as safe_exc:
+            print(f"⚠️ 按键精灵接口安全兜底V2自身异常：{safe_exc}")
+            try:
+                return _kw_default_response_for_path(_kw_request.path)
+            except Exception:
+                return response
+
+    print("✅ KOKO_KEYWIZARD_INTERFACE_SAFE_V2: after_request 已启用")
+except Exception as exc:
+    print(f"⚠️ KOKO_KEYWIZARD_INTERFACE_SAFE_V2: after_request 注册失败：{exc}")
+
+
+try:
+    @app.errorhandler(Exception)
+    def _kw_keywizard_safe_errorhandler_v2(exc):
+        try:
+            path = _kw_request.path if _kw_request else ''
+            if path in _KW_SAFE_ENDPOINT_DEFAULTS:
+                print(f"❌ 按键精灵接口异常，安全兜底V2已接管：{path} {type(exc).__name__}: {exc}")
+                return _kw_default_response_for_path(path)
+        except Exception:
+            pass
+
+        print("❌ 非按键精灵接口未处理异常：")
+        try:
+            print(traceback.format_exc())
+        except Exception:
+            print(exc)
+        return _kw_json_response({'code': '500', 'msg': 'server error'}, 500)
+
+    print("✅ KOKO_KEYWIZARD_INTERFACE_SAFE_V2: errorhandler 已启用")
+except Exception as exc:
+    print(f"⚠️ KOKO_KEYWIZARD_INTERFACE_SAFE_V2: errorhandler 注册失败：{exc}")
+# KOKO_KEYWIZARD_INTERFACE_SAFE_V2_END
+
+
 if __name__ == "__main__":
     start_startup_tools()
     threading.Thread(target=heartbeat_loop, daemon=True).start()
