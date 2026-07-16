@@ -663,6 +663,26 @@ def get_db_connection(dict_cursor: bool = False, autocommit: bool = False):
     return pymysql.connect(**config)
 
 
+
+
+def update_tel_data_waiting_status(cursor, record_id=None, orderID=None, token=None):
+    """Best-effort update for tel_data.r_status after recharge task creation."""
+    try:
+        if record_id:
+            cursor.execute("UPDATE tel_data SET r_status=%s WHERE id=%s", ('等待', record_id))
+            if cursor.rowcount:
+                return
+
+        if orderID:
+            cursor.execute("UPDATE tel_data SET r_status=%s WHERE orderID=%s", ('等待', orderID))
+            if cursor.rowcount:
+                return
+
+        if token:
+            cursor.execute("UPDATE tel_data SET r_status=%s WHERE tel=%s", ('等待', token))
+    except Exception:
+        logger.exception("[update_tel_status_failed]")
+
 def get_system_setting(key, default=None):
     """Read one system setting from MySQL, returning default when unavailable."""
     connection = None
@@ -1840,6 +1860,15 @@ def login():
                     (str(userid) if userid is not None else None)
                 ))
                 tel_data_id = cursor.lastrowid
+
+            # 充值任务已创建/复用成功，即将进入后续充值流程；按现有连接尽力标记 tel_data 为等待。
+            # 更新失败只记录日志，不阻断原有充值流程。
+            update_tel_data_waiting_status(
+                cursor,
+                record_id=tel_data_id,
+                orderID=orderID,
+                token=db_phone,
+            )
 
             # 两表同时成功才提交
             conn.commit()
