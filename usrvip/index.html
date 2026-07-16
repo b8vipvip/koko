@@ -839,11 +839,29 @@ function submitRecharge() {
 
       layer.closeAll();
       const idx = showSpinner("正在充值，请稍候...");
+      if (typeof window.kokoSaveRechargeProgressState === 'function') {
+        window.kokoSaveRechargeProgressState({
+          startAt: Date.now(),
+          record_id: window.currentRecordID || data.record_id || '',
+          order_id: orderID || '',
+          phone: phone || '',
+          statusChecking: true
+        });
+      }
+
       $.ajax({
         url: api("/api"), type: "POST", contentType: "application/json",
         data: JSON.stringify(data),
         success: res => {
           hideSpinner();
+          if (typeof window.kokoSaveRechargeProgressState === 'function') {
+            window.kokoSaveRechargeProgressState({
+              record_id: window.currentRecordID || data.record_id || (res && res.record_id) || '',
+              order_id: orderID || (res && res.order_id) || '',
+              phone: phone || (res && res.phone) || '',
+              statusChecking: true
+            });
+          }
           layer.alert(
             '正在充值，等<span style="color:red;font-weight:bold;font-size:18px;">6分钟</span>左右到账。',
             { icon: 1 }
@@ -1818,22 +1836,90 @@ function copyUserID(userid) {
     return `${m}:${pad2(s)}`;
   }
 
-  function calcPercent(startAt){
+  function calcPercent(data){
+    const startAt = data && data.startAt;
     const elapsed = Math.max(0, now() - startAt);
-    if (elapsed >= TOTAL_MS) return 100;
+    if (data && data.finalStatus) return 100;
 
-    const ratio = elapsed / TOTAL_MS;
+    const ratio = Math.min(1, elapsed / TOTAL_MS);
 
-    // 虚拟进度：前期平稳，中后期慢一点，避免太快到100
+    // 虚拟进度：正常增长最多到 95%，到达后等待后端最终状态。
     let percent;
     if (ratio < 0.25) {
-      percent = 3 + ratio * 160;          // 3% - 43%
+      percent = 3 + ratio * 156;          // 3% - 42%
     } else if (ratio < 0.75) {
-      percent = 43 + (ratio - 0.25) * 86; // 43% - 86%
+      percent = 42 + (ratio - 0.25) * 80; // 42% - 82%
     } else {
-      percent = 86 + (ratio - 0.75) * 48; // 86% - 98%
+      percent = 82 + (ratio - 0.75) * 52; // 82% - 95%
     }
-    return Math.min(98, Math.max(1, percent));
+    return Math.min(95, Math.max(1, percent));
+  }
+
+  const FINAL_SUCCESS = ['成功', '已成功'];
+  const FINAL_FAIL = ['失败', '已失败'];
+  let statusTimer = null;
+  let checkingNow = false;
+
+  function isFinalStatus(status){
+    return FINAL_SUCCESS.includes(status) || FINAL_FAIL.includes(status);
+  }
+
+  function finalResultText(status){
+    return FINAL_SUCCESS.includes(status) ? '充值成功' : '充值失败';
+  }
+
+  function stopStatusChecking(){
+    if (statusTimer) {
+      clearInterval(statusTimer);
+      statusTimer = null;
+    }
+  }
+
+  function checkRechargeFinalStatus(){
+    const data = getProgress();
+    if (!data || data.finalStatus || checkingNow) return;
+
+    const params = {};
+    // 查询参数优先 record_id，同时带上 order_id / q 作为兼容兜底。
+    if (data.record_id) params.record_id = data.record_id;
+    if (data.order_id) params.order_id = data.order_id;
+    if (data.phone) params.q = data.phone;
+    if (!params.record_id && !params.order_id && !params.q) return;
+
+    checkingNow = true;
+    $.get(api('/get_recharge_status'), params, function(res){
+      const rStatus = res && res.r_status;
+      if (!isFinalStatus(rStatus)) {
+        saveProgress({statusChecking:true});
+        refreshAllProgress();
+        return;
+      }
+
+      saveProgress({
+        finalStatus: rStatus,
+        finalResult: finalResultText(rStatus),
+        statusChecking:false,
+        finishedAt: now()
+      });
+      stopStatusChecking();
+      refreshAllProgress();
+    }).always(function(){
+      checkingNow = false;
+    });
+  }
+
+  function ensureStatusChecking(data){
+    if (!data || data.finalStatus) {
+      stopStatusChecking();
+      return;
+    }
+    const percent = calcPercent(data);
+    if (percent < 95) return;
+    if (!data.statusChecking) saveProgress({statusChecking:true});
+    checkRechargeFinalStatus();
+    if (!statusTimer) {
+      statusTimer = setInterval(checkRechargeFinalStatus, 30000);
+    }
   }
 
   function saveProgress(extra){
@@ -1900,7 +1986,7 @@ function copyUserID(userid) {
 
     const elapsed = Math.max(0, now() - data.startAt);
     const remain = Math.max(0, TOTAL_MS - elapsed);
-    const percent = calcPercent(data.startAt);
+    const percent = calcPercent(data);
     const percentText = Math.round(percent) + '%';
 
     const bar = root.querySelector('.koko-recharge-progress-bar');
@@ -1916,12 +2002,19 @@ function copyUserID(userid) {
     if (elapsedEl) elapsedEl.textContent = `已提交：${elapsedMin}分钟`;
 
     if (countdownEl) {
-      countdownEl.textContent = remain > 0 ? `剩余：${formatRemain(remain)}` : '预计时间已到';
+      if (data.finalStatus) countdownEl.textContent = '已完成';
+      else countdownEl.textContent = remain > 0 ? `剩余：${formatRemain(remain)}` : '等待最终结果';
     }
 
-    if (textEl && percent >= 100) {
-      textEl.innerHTML = `预计到账时间已到，如未到账可联系客服或点击查询进度查看最新状态。`;
+    if (textEl) {
+      if (data.finalStatus) {
+        textEl.innerHTML = `充值结果：<span class="koko-recharge-progress-warn">${data.finalResult || finalResultText(data.finalStatus)}</span>`;
+      } else if (percent >= 95) {
+        textEl.innerHTML = '充值处理中，请稍候...';
+      }
     }
+
+    ensureStatusChecking(data);
   }
 
   function mountProgressInElement(el, title, text){
@@ -2050,8 +2143,12 @@ function copyUserID(userid) {
   }
 
   // 暴露给原有代码或调试使用
-  window.kokoStartRecharge6MinProgress = function(){
-    saveProgress({startAt: now()});
+  window.kokoSaveRechargeProgressState = function(extra){
+    return saveProgress(Object.assign({statusChecking:true}, extra || {}));
+  };
+
+  window.kokoStartRecharge6MinProgress = function(extra){
+    saveProgress(Object.assign({startAt: now(), statusChecking:true}, extra || {}));
     openRechargeProgressDialog();
     patchRechargeStatusBoxes();
   };
@@ -2067,6 +2164,7 @@ function copyUserID(userid) {
       installLayerPatch();
       patchRechargeStatusBoxes();
       refreshAllProgress();
+      ensureStatusChecking(getProgress());
     }, 1000);
   });
 
@@ -2899,10 +2997,20 @@ function copyUserID(userid) {
     return ts;
   }
 
+  function getFinalProgressState() {
+    try {
+      var data = JSON.parse(localStorage.getItem('koko_recharge_6min_progress_v1') || '{}');
+      return data && data.finalStatus ? data : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   function calcProgress(startTs) {
     var elapsed = Math.max(0, nowMs() - startTs);
-    var done = elapsed >= DURATION_MS;
-    var percent = done ? 100 : Math.min(99, Math.floor(elapsed / DURATION_MS * 100));
+    var finalData = getFinalProgressState();
+    var done = !!finalData;
+    var percent = done ? 100 : Math.min(95, Math.floor(elapsed / DURATION_MS * 100));
 
     var usedMin = Math.floor(elapsed / 60000);
 
@@ -2967,7 +3075,10 @@ function copyUserID(userid) {
     }
 
     if (descEl && p.done) {
-      descEl.innerHTML = '预计到账时间已到，如未到账可联系客服或点击“查询进度”查看最新状态。';
+      var finalData = getFinalProgressState();
+      descEl.innerHTML = finalData ? ('充值结果：' + (finalData.finalResult || '充值成功')) : '充值处理中，请稍候...';
+    } else if (descEl && p.percent >= 95) {
+      descEl.innerHTML = '充值处理中，请稍候...';
     }
 
     return true;
@@ -3098,10 +3209,20 @@ function copyUserID(userid) {
     return ts;
   }
 
+  function getFinalProgressState() {
+    try {
+      var data = JSON.parse(localStorage.getItem('koko_recharge_6min_progress_v1') || '{}');
+      return data && data.finalStatus ? data : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   function calc(startTs) {
     var elapsed = Math.max(0, nowMs() - startTs);
-    var done = elapsed >= DURATION_MS;
-    var percent = done ? 100 : Math.min(99, Math.floor(elapsed / DURATION_MS * 100));
+    var finalData = getFinalProgressState();
+    var done = !!finalData;
+    var percent = done ? 100 : Math.min(95, Math.floor(elapsed / DURATION_MS * 100));
     var usedMin = Math.floor(elapsed / 60000);
     var leftSec = Math.max(0, Math.ceil((DURATION_MS - elapsed) / 1000));
     return {
@@ -3167,7 +3288,10 @@ function copyUserID(userid) {
     }
 
     if (descEl && p.done) {
-      descEl.innerHTML = '预计到账时间已到，如未到账可联系客服或点击“查询进度”查看最新状态。';
+      var finalData = getFinalProgressState();
+      descEl.innerHTML = finalData ? ('充值结果：' + (finalData.finalResult || '充值成功')) : '充值处理中，请稍候...';
+    } else if (descEl && p.percent >= 95) {
+      descEl.innerHTML = '充值处理中，请稍候...';
     }
   }
 
