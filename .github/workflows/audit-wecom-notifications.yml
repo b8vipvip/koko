@@ -1,0 +1,37 @@
+name: Audit Enterprise WeChat notification migration
+
+on:
+  pull_request:
+    types: [synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Scan admin and server notification code
+        shell: bash
+        run: |
+          {
+            echo "# Notification-related usages under admin/ and server/"
+            echo
+            grep -RInE --exclude-dir=vendor --exclude='*.min.js' --exclude='*.map' \
+              'smtplib|SMTP_|PHPMailer|MIMEText|sendmail|koko_create_mailer|koko_send_backend_error_mail|邮件|邮箱|email_sent|MAIL_TO|MAIL_FROM' \
+              admin server || true
+          } > .github/wecom-notification-audit.txt
+
+      - name: Commit audit only
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/wecom-notification-audit.txt
+          git commit -m "chore: capture notification migration audit" || exit 0
+          git push origin HEAD:main
