@@ -1,5 +1,0 @@
-# Enterprise WeChat notification migration audit
-
-Scanned: admin/ and server/ (admin/vendor excluded)
-
-No direct SMTP/PHPMailer/smtplib email sender usage found.
