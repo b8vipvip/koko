@@ -1,14 +1,16 @@
 name: Audit Enterprise WeChat notification migration
 
 on:
-  pull_request:
-    types: [synchronize]
+  push:
+    paths:
+      - '.github/wecom-audit-trigger-main'
 
 permissions:
   contents: write
 
 jobs:
   audit:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
