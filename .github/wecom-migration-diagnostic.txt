@@ -1,0 +1,30 @@
+===== php -l admin/lib/config.php =====
+No syntax errors detected in admin/lib/config.php
+exit=0
+===== php -l admin/lib/mailer.php =====
+No syntax errors detected in admin/lib/mailer.php
+exit=0
+===== php -l admin/phpapi/system_settings.php =====
+No syntax errors detected in admin/phpapi/system_settings.php
+exit=0
+===== php -l admin/api.php =====
+No syntax errors detected in admin/api.php
+exit=0
+===== php -l admin/dev.php =====
+No syntax errors detected in admin/dev.php
+exit=0
+===== php -l admin/email.php =====
+No syntax errors detected in admin/email.php
+exit=0
+===== php -l admin/mail_test.php =====
+No syntax errors detected in admin/mail_test.php
+exit=0
+===== php -l admin/cron_balance_monitor.php =====
+No syntax errors detected in admin/cron_balance_monitor.php
+exit=0
+===== python compile =====
+  File "server/koko_task_helpers.py", line 298
+    content = "【{}】
+              ^
+SyntaxError: unterminated string literal (detected at line 298)
+exit=1
