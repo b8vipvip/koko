@@ -1,0 +1,46 @@
+name: Diagnose recharge record fixer
+
+on:
+  pull_request:
+    types: [synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Execute patch and capture diagnostics
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import traceback
+
+          try:
+              workflow = Path('.github/workflows/fix-recharge-record-isolation.yml').read_text(encoding='utf-8')
+              marker = "          python - <<'PY'\n"
+              start = workflow.index(marker) + len(marker)
+              end = workflow.index("\n          PY\n", start)
+              block = workflow[start:end]
+              code = '\n'.join(line[10:] if line.startswith('          ') else line for line in block.splitlines())
+              exec(compile(code, 'embedded_recharge_fixer.py', 'exec'), {})
+              Path('.github/fixer-diagnostic.txt').write_text('PATCH_OK\n', encoding='utf-8')
+          except Exception:
+              Path('.github/fixer-diagnostic.txt').write_text(traceback.format_exc(), encoding='utf-8')
+          PY
+
+      - name: Commit diagnostic or patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/fixer-diagnostic.txt usrvip/index.html server/kugo_mergedl.py
+          git commit -m "chore: capture recharge fixer diagnostic" || exit 0
+          git push origin HEAD:main
