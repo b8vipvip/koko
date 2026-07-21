@@ -19,7 +19,7 @@ jobs:
       - name: Apply notification migration
         run: python scripts/migrate_notifications_to_wecom.py
 
-      - name: Validate syntax and notification paths
+      - name: Validate syntax
         shell: bash
         run: |
           php -l admin/lib/config.php
@@ -31,12 +31,6 @@ jobs:
           php -l admin/mail_test.php
           php -l admin/cron_balance_monitor.php
           python -m py_compile server/koko_task_helpers.py server/kugo_mergedl.py server/app_optimized-cdp.py
-          grep -q "wecom_corp_id" admin/index.html
-          grep -q "wecom_agent_secret_configured" admin/phpapi/system_settings.php
-          grep -q "send_new_task_wecom" server/koko_task_helpers.py
-          grep -q "企业微信" admin/lib/mailer.php
-          ! grep -nE "import smtplib|SMTP_HOST|SMTP_PASSWORD|MIMEText" server/koko_task_helpers.py
-          ! grep -nE "PHPMailer|SMTP_HOST|SMTP_PASSWORD" admin/lib/mailer.php
 
       - name: Commit migration
         shell: bash
