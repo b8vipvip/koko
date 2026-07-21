@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "<stdin>", line 11, in <module>
+  File "embedded_recharge_fixer.py", line 36, in <module>
+  File "embedded_recharge_fixer.py", line 6, in replace_once
+SystemExit: frontend: remove pre-api progress start: expected exactly 1 match, found 0
