@@ -666,20 +666,43 @@ def get_db_connection(dict_cursor: bool = False, autocommit: bool = False):
 
 
 def update_tel_data_waiting_status(cursor, record_id=None, orderID=None, token=None):
-    """Best-effort update for tel_data.r_status after recharge task creation."""
+    """Mark only formal recharge rows as waiting; never touch SMS verification rows."""
     try:
         if record_id:
-            cursor.execute("UPDATE tel_data SET r_status=%s WHERE id=%s", ('等待', record_id))
+            cursor.execute("""
+                UPDATE tel_data
+                SET r_status=%s
+                WHERE id=%s
+                  AND init='0'
+                  AND yzm_status='3'
+                LIMIT 1
+            """, ('等待', record_id))
             if cursor.rowcount:
                 return
 
         if orderID:
-            cursor.execute("UPDATE tel_data SET r_status=%s WHERE orderID=%s", ('等待', orderID))
+            cursor.execute("""
+                UPDATE tel_data
+                SET r_status=%s
+                WHERE orderID=%s
+                  AND init='0'
+                  AND yzm_status='3'
+                ORDER BY id DESC
+                LIMIT 1
+            """, ('等待', orderID))
             if cursor.rowcount:
                 return
 
         if token:
-            cursor.execute("UPDATE tel_data SET r_status=%s WHERE tel=%s", ('等待', token))
+            cursor.execute("""
+                UPDATE tel_data
+                SET r_status=%s
+                WHERE tel=%s
+                  AND init='0'
+                  AND yzm_status='3'
+                ORDER BY id DESC
+                LIMIT 1
+            """, ('等待', token))
     except Exception:
         logger.exception("[update_tel_status_failed]")
 
@@ -1307,7 +1330,7 @@ class dbClass:
             raise
     def fs_yzm(self):
         sql = "select   tel,yzm,zhanghu,huiyuanguize,lingqu3,shougong,qdzhb,applogin,weblog,init,id,c_status" \
-              " from  tel_data  where status='1' and yzm_status='1' order by id asc "
+              " from  tel_data  where status='1' and yzm_status='1' and init='1' order by id asc "
         self.cursor.execute(sql)
         ret1 = self.cursor.fetchone()  # 取一条
         if ret1:
@@ -1316,8 +1339,8 @@ class dbClass:
         else:
             return ''    
     def getTelYzm(self):
-        # sql="select   tel ,yzm from  tel_data  t where status='2' and yzm is not null  and  TIMEDIFF(NOW(), create_date) < '00:10:00' limit 1"
-        sql="select   tel ,yzm,chongzhitype from  tel_data  t where status='2' and yzm is not null  and  TIMEDIFF(NOW(), create_date) < '00:10:00' limit 1"
+        # 只读取短信验证码流程记录；正式充值(init=0, yzm_status=3)必须完全排除。
+        sql="select   tel ,yzm,chongzhitype from  tel_data  t where status='2' and yzm_status='2' and init='1' and yzm is not null  and  TIMEDIFF(NOW(), create_date) < '00:10:00' limit 1"
         self.cursor.execute(sql)
         ret1 = self.cursor.fetchone()  # 取一条
 
@@ -1326,15 +1349,18 @@ class dbClass:
         else:
             return  ''
     def update_tel_status_aa(self,tel):
-        sql="update tel_data set status='2', yzm_status='2' where tel=%s and status='1'"
+        # 验证码任务只能更新 init=1 / yzm_status=1 的记录。
+        sql="update tel_data set status='2', yzm_status='2' where tel=%s and status='1' and yzm_status='1' and init='1' order by id asc limit 1"
         self.cursor.execute(sql, [tel])
         self.conn.commit()
     def update_tel_status3(self,tel):
-        sql="update tel_data set status='3' where tel=%s and status='2'"
+        # 验证码流程结束同样只处理验证码记录。
+        sql="update tel_data set status='3' where tel=%s and status='2' and yzm_status='2' and init='1' order by id asc limit 1"
         self.cursor.execute(sql, [tel])
         self.conn.commit()
     def update_r_status_aa(self, tel, r_status):
-        sql = "UPDATE tel_data SET r_status=%s WHERE tel=%s"
+        # 旧接口按手机号回写时，只更新最新一条正式充值任务。
+        sql = "UPDATE tel_data SET r_status=%s WHERE tel=%s AND init='0' AND yzm_status='3' ORDER BY id DESC LIMIT 1"
         self.cursor.execute(sql, [r_status, tel])
         self.conn.commit()
 # 接收并更新状态
@@ -2599,6 +2625,7 @@ def get_recharge_status():
     if not q:
         return jsonify({'status': 'none'})
 
+    tel_data_id = request.args.get('tel_data_id', type=int)
     is_phone = bool(re.match(r'^1[3-9]\d{9}$', q))
 
     # ✅ 根据输入决定查询字段
@@ -2697,21 +2724,34 @@ def get_recharge_status():
                     print("⚠️ 时间计算出错：", e)
 
         # =========================
-        # 3) 查询 tel_data 中当天的充值结果
+        # 3) 查询正式充值 tel_data 记录
+        # 优先按 tel_data.id 精确查询；旧缓存才按手机号/兑换码兜底。
+        # 获取验证码记录(init=1 / yzm_status=1)必须完全排除。
         # =========================
-        cursor.execute(f"""
-            SELECT r_status, zhanghu, orderID, tel, create_date
-            FROM tel_data
-            WHERE {tel_where}
-              AND init='0'
-              
-            ORDER BY create_date DESC
-            LIMIT 1
-        """, (q,))
+        if tel_data_id:
+            cursor.execute("""
+                SELECT id, r_status, zhanghu, orderID, tel, create_date
+                FROM tel_data
+                WHERE id=%s
+                  AND init='0'
+                  AND yzm_status='3'
+                LIMIT 1
+            """, (tel_data_id,))
+        else:
+            cursor.execute(f"""
+                SELECT id, r_status, zhanghu, orderID, tel, create_date
+                FROM tel_data
+                WHERE {tel_where}
+                  AND init='0'
+                  AND yzm_status='3'
+                ORDER BY id DESC
+                LIMIT 1
+            """, (q,))
         tel_record = cursor.fetchone()
 
         if tel_record:
-            print("✅ 找到 tel_data 中 r_status：", tel_record.get('r_status'))
+            print("✅ 找到正式充值 tel_data 中 r_status：", tel_record.get('r_status'))
+            result['tel_data_id'] = tel_record.get('id')
             result['r_status'] = tel_record.get('r_status', '') or ''
 
             # tel_data 命名：orderID / tel

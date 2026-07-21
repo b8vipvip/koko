@@ -839,27 +839,28 @@ function submitRecharge() {
 
       layer.closeAll();
       const idx = showSpinner("正在充值，请稍候...");
-      if (typeof window.kokoSaveRechargeProgressState === 'function') {
-        window.kokoSaveRechargeProgressState({
-          startAt: Date.now(),
-          record_id: window.currentRecordID || data.record_id || '',
-          order_id: orderID || '',
-          phone: phone || '',
-          statusChecking: true
-        });
-      }
-
+      // 正式充值进度只在 /api 成功返回 tel_data_id 后启动。
+      // 获取验证码(type=fasong, init=1, yzm_status=1)不会进入充值进度。
       $.ajax({
         url: api("/api"), type: "POST", contentType: "application/json",
         data: JSON.stringify(data),
         success: res => {
           hideSpinner();
+
+          // 后端返回正式充值记录 tel_data.id，95%后的轮询优先按此ID精确查询。
+          const telDataID = (res && res.tel_data_id) || '';
+          window.currentTelDataID = telDataID || null;
           if (typeof window.kokoSaveRechargeProgressState === 'function') {
             window.kokoSaveRechargeProgressState({
+              startAt: Date.now(),
+              tel_data_id: telDataID,
               record_id: window.currentRecordID || data.record_id || (res && res.record_id) || '',
               order_id: orderID || (res && res.order_id) || '',
               phone: phone || (res && res.phone) || '',
-              statusChecking: true
+              statusChecking: true,
+              finalStatus: '',
+              finalResult: '',
+              finishedAt: null
             });
           }
           layer.alert(
@@ -968,12 +969,14 @@ function checkRechargeStatus() {
     window.currentCode = res.code || '';
     window.currentOrderID = res.order_id || '';
     window.currentRecordID = res.record_id || null;
+    window.currentTelDataID = res.tel_data_id || null;
 
     console.log("✅ 已缓存数据：", {
       phone: window.currentPhone,
       code: window.currentCode,
       orderID: window.currentOrderID,
-      recordID: window.currentRecordID
+      recordID: window.currentRecordID,
+      telDataID: window.currentTelDataID
     });
 
     if (res.status === 'accounts' && res.accounts && res.accounts.length) {
@@ -1878,13 +1881,12 @@ function copyUserID(userid) {
   function checkRechargeFinalStatus(){
     const data = getProgress();
     if (!data || data.finalStatus || checkingNow) return;
-
     const params = {};
-    // 查询参数优先 record_id，同时带上 order_id / q 作为兼容兜底。
-    if (data.record_id) params.record_id = data.record_id;
-    if (data.order_id) params.order_id = data.order_id;
-    if (data.phone) params.q = data.phone;
-    if (!params.record_id && !params.order_id && !params.q) return;
+    // 正式充值记录主键优先；q 仅兼容旧进度缓存。
+    if (data.tel_data_id) params.tel_data_id = data.tel_data_id;
+    if (data.order_id) params.q = data.order_id;
+    else if (data.phone) params.q = data.phone;
+    if (!params.tel_data_id && !params.q) return;
 
     checkingNow = true;
     $.get(api('/get_recharge_status'), params, function(res){
