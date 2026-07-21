@@ -1,0 +1,445 @@
+name: Fix recharge record isolation
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-recharge-record-isolation.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply recharge record isolation fix
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly 1 match, found {count}')
+              return text.replace(old, new, 1)
+
+          # -------------------------
+          # usrvip/index.html
+          # -------------------------
+          p = Path('usrvip/index.html')
+          text = p.read_text(encoding='utf-8')
+
+          old = '''      layer.closeAll();
+          const idx = showSpinner("正在充值，请稍候...");
+          if (typeof window.kokoSaveRechargeProgressState === 'function') {
+            window.kokoSaveRechargeProgressState({
+              startAt: Date.now(),
+              record_id: window.currentRecordID || data.record_id || '',
+              order_id: orderID || '',
+              phone: phone || '',
+              statusChecking: true
+            });
+          }
+
+          $.ajax({
+'''
+          new = '''      layer.closeAll();
+          const idx = showSpinner("正在充值，请稍候...");
+
+          // 只有 /api 正式创建/复用充值任务成功后才启动充值进度。
+          // 获取验证码(type=fasong, init=1, yzm_status=1)绝不能创建充值进度状态。
+          $.ajax({
+'''
+          text = replace_once(text, old, new, 'frontend: remove pre-api progress start')
+
+          old = '''        success: res => {
+          hideSpinner();
+          if (typeof window.kokoSaveRechargeProgressState === 'function') {
+            window.kokoSaveRechargeProgressState({
+              record_id: window.currentRecordID || data.record_id || (res && res.record_id) || '',
+              order_id: orderID || (res && res.order_id) || '',
+              phone: phone || (res && res.phone) || '',
+              statusChecking: true
+            });
+          }
+          layer.alert(
+'''
+          new = '''        success: res => {
+          hideSpinner();
+
+          // 后端返回的是正式充值记录 tel_data.id。后续95%状态轮询优先按这个ID精确查询，
+          // 避免同手机号的“获取验证码”记录参与充值进度判断。
+          const telDataID = (res && res.tel_data_id) || '';
+          window.currentTelDataID = telDataID || null;
+          if (typeof window.kokoSaveRechargeProgressState === 'function') {
+            window.kokoSaveRechargeProgressState({
+              startAt: Date.now(),
+              tel_data_id: telDataID,
+              record_id: window.currentRecordID || data.record_id || (res && res.record_id) || '',
+              order_id: orderID || (res && res.order_id) || '',
+              phone: phone || (res && res.phone) || '',
+              statusChecking: true,
+              finalStatus: '',
+              finalResult: '',
+              finishedAt: null
+            });
+          }
+          layer.alert(
+'''
+          text = replace_once(text, old, new, 'frontend: save formal tel_data id after api success')
+
+          old = '''    const params = {};
+    // 查询参数优先 record_id，同时带上 order_id / q 作为兼容兜底。
+    if (data.record_id) params.record_id = data.record_id;
+    if (data.order_id) params.order_id = data.order_id;
+    if (data.phone) params.q = data.phone;
+    if (!params.record_id && !params.order_id && !params.q) return;
+'''
+          new = '''    const params = {};
+    // tel_data_id 是正式充值记录主键，必须优先使用；q 仅作为老数据/旧进度缓存兜底。
+    if (data.tel_data_id) params.tel_data_id = data.tel_data_id;
+    if (data.order_id) params.q = data.order_id;
+    else if (data.phone) params.q = data.phone;
+    if (!params.tel_data_id && !params.q) return;
+'''
+          text = replace_once(text, old, new, 'frontend: poll by tel_data id')
+
+          old = '''    window.currentOrderID = res.order_id || '';
+    window.currentRecordID = res.record_id || null;
+
+    console.log("✅ 已缓存数据：", {
+      phone: window.currentPhone,
+      code: window.currentCode,
+      orderID: window.currentOrderID,
+      recordID: window.currentRecordID
+    });
+'''
+          new = '''    window.currentOrderID = res.order_id || '';
+    window.currentRecordID = res.record_id || null;
+    window.currentTelDataID = res.tel_data_id || null;
+
+    console.log("✅ 已缓存数据：", {
+      phone: window.currentPhone,
+      code: window.currentCode,
+      orderID: window.currentOrderID,
+      recordID: window.currentRecordID,
+      telDataID: window.currentTelDataID
+    });
+'''
+          text = replace_once(text, old, new, 'frontend: cache tel_data id')
+
+          p.write_text(text, encoding='utf-8')
+
+          # -------------------------
+          # server/kugo_mergedl.py
+          # -------------------------
+          p = Path('server/kugo_mergedl.py')
+          text = p.read_text(encoding='utf-8')
+
+          old = '''def update_tel_data_waiting_status(cursor, record_id=None, orderID=None, token=None):
+    """Best-effort update for tel_data.r_status after recharge task creation."""
+    try:
+        if record_id:
+            cursor.execute("UPDATE tel_data SET r_status=%s WHERE id=%s", ('等待', record_id))
+            if cursor.rowcount:
+                return
+
+        if orderID:
+            cursor.execute("UPDATE tel_data SET r_status=%s WHERE orderID=%s", ('等待', orderID))
+            if cursor.rowcount:
+                return
+
+        if token:
+            cursor.execute("UPDATE tel_data SET r_status=%s WHERE tel=%s", ('等待', token))
+    except Exception:
+        logger.exception("[update_tel_status_failed]")
+'''
+          new = '''def update_tel_data_waiting_status(cursor, record_id=None, orderID=None, token=None):
+    """Mark only a formal recharge row as waiting; never touch SMS verification rows."""
+    try:
+        if record_id:
+            cursor.execute("""
+                UPDATE tel_data
+                SET r_status=%s
+                WHERE id=%s
+                  AND init='0'
+                  AND yzm_status='3'
+                LIMIT 1
+            """, ('等待', record_id))
+            if cursor.rowcount:
+                return
+
+        # Compatibility fallback for old callers without a tel_data.id.
+        # Both fallbacks are restricted to formal recharge rows and only the latest row.
+        if orderID:
+            cursor.execute("""
+                UPDATE tel_data
+                SET r_status=%s
+                WHERE orderID=%s
+                  AND init='0'
+                  AND yzm_status='3'
+                ORDER BY id DESC
+                LIMIT 1
+            """, ('等待', orderID))
+            if cursor.rowcount:
+                return
+
+        if token:
+            cursor.execute("""
+                UPDATE tel_data
+                SET r_status=%s
+                WHERE tel=%s
+                  AND init='0'
+                  AND yzm_status='3'
+                ORDER BY id DESC
+                LIMIT 1
+            """, ('等待', token))
+    except Exception:
+        logger.exception("[update_tel_status_failed]")
+'''
+          text = replace_once(text, old, new, 'backend: waiting status formal rows only')
+
+          old = '''    def fs_yzm(self):
+        sql = "select   tel,yzm,zhanghu,huiyuanguize,lingqu3,shougong,qdzhb,applogin,weblog,init,id,c_status" \\
+              " from  tel_data  where status='1' and yzm_status='1' order by id asc "
+'''
+          new = '''    def fs_yzm(self):
+        sql = "select   tel,yzm,zhanghu,huiyuanguize,lingqu3,shougong,qdzhb,applogin,weblog,init,id,c_status" \\
+              " from  tel_data  where status='1' and yzm_status='1' and init='1' order by id asc "
+'''
+          text = replace_once(text, old, new, 'backend: verification fetch ignores recharge rows')
+
+          old = '''    def getTelYzm(self):
+        # sql="select   tel ,yzm from  tel_data  t where status='2' and yzm is not null  and  TIMEDIFF(NOW(), create_date) < '00:10:00' limit 1"
+        sql="select   tel ,yzm,chongzhitype from  tel_data  t where status='2' and yzm is not null  and  TIMEDIFF(NOW(), create_date) < '00:10:00' limit 1"
+'''
+          new = '''    def getTelYzm(self):
+        # 只读取短信验证码流程记录；正式充值(init=0, yzm_status=3)必须完全排除。
+        sql="select   tel ,yzm,chongzhitype from  tel_data  t where status='2' and yzm_status='2' and init='1' and yzm is not null  and  TIMEDIFF(NOW(), create_date) < '00:10:00' limit 1"
+'''
+          text = replace_once(text, old, new, 'backend: verification result ignores recharge rows')
+
+          old = '''    def update_tel_status_aa(self,tel):
+        sql="update tel_data set status='2', yzm_status='2' where tel=%s and status='1'"
+        self.cursor.execute(sql, [tel])
+        self.conn.commit()
+    def update_tel_status3(self,tel):
+        sql="update tel_data set status='3' where tel=%s and status='2'"
+        self.cursor.execute(sql, [tel])
+        self.conn.commit()
+    def update_r_status_aa(self, tel, r_status):
+        sql = "UPDATE tel_data SET r_status=%s WHERE tel=%s"
+        self.cursor.execute(sql, [r_status, tel])
+        self.conn.commit()
+'''
+          new = '''    def update_tel_status_aa(self,tel):
+        # 短信验证码领取只能更新 init=1 / yzm_status=1 的记录，不能误改正式充值任务。
+        sql="update tel_data set status='2', yzm_status='2' where tel=%s and status='1' and yzm_status='1' and init='1' order by id asc limit 1"
+        self.cursor.execute(sql, [tel])
+        self.conn.commit()
+    def update_tel_status3(self,tel):
+        # 短信验证码流程结束同样只处理验证码记录。
+        sql="update tel_data set status='3' where tel=%s and status='2' and yzm_status='2' and init='1' order by id asc limit 1"
+        self.cursor.execute(sql, [tel])
+        self.conn.commit()
+    def update_r_status_aa(self, tel, r_status):
+        # 旧接口按手机号回写时，只更新最新一条正式充值任务。
+        sql = "UPDATE tel_data SET r_status=%s WHERE tel=%s AND init='0' AND yzm_status='3' ORDER BY id DESC LIMIT 1"
+        self.cursor.execute(sql, [r_status, tel])
+        self.conn.commit()
+'''
+          text = replace_once(text, old, new, 'backend: isolate legacy verification/recharge updates')
+
+          old = '''    q = (request.args.get('q') or '').strip()
+    if not q:
+        return jsonify({'status': 'none'})
+
+    is_phone = bool(re.match(r'^1[3-9]\\d{9}$', q))
+'''
+          new = '''    q = (request.args.get('q') or '').strip()
+    tel_data_id = request.args.get('tel_data_id', type=int)
+    if not q and not tel_data_id:
+        return jsonify({'status': 'none'})
+
+    is_phone = bool(q and re.match(r'^1[3-9]\\d{9}$', q))
+'''
+          text = replace_once(text, old, new, 'backend: accept tel_data_id query')
+
+          old = '''        result = {
+            'status': 'none',
+            'query': q,
+            'query_type': 'phone' if is_phone else 'order_id'
+        }
+
+        # =========================
+        # 1) 查询5分钟内 submitstatus=1 的记录
+        # =========================
+        cursor.execute(f"""
+            SELECT * FROM user_data
+            WHERE {user_where}
+              AND submitstatus=1
+              AND create_date >= NOW() - INTERVAL 8 MINUTE
+            ORDER BY create_date DESC
+            LIMIT 1
+        """, (q,))
+        record = cursor.fetchone()
+'''
+          new = '''        result = {
+            'status': 'none',
+            'query': q,
+            'query_type': 'phone' if is_phone else ('order_id' if q else 'tel_data_id')
+        }
+        if tel_data_id:
+            result['tel_data_id'] = tel_data_id
+
+        # =========================
+        # 1) 查询5分钟内 submitstatus=1 的记录
+        # tel_data_id 轮询允许不带 q，此时跳过 user_data 查询。
+        # =========================
+        record = None
+        if q:
+            cursor.execute(f"""
+                SELECT * FROM user_data
+                WHERE {user_where}
+                  AND submitstatus=1
+                  AND create_date >= NOW() - INTERVAL 8 MINUTE
+                ORDER BY create_date DESC
+                LIMIT 1
+            """, (q,))
+            record = cursor.fetchone()
+'''
+          text = replace_once(text, old, new, 'backend: skip user lookup for id-only polling')
+
+          old = '''        else:
+            print("⏳ 未找到5分钟内 submitstatus=1 的记录")
+
+            # =========================
+            # 2) 查 submitstatus=2（近10分钟），并计算已过时间
+            # =========================
+            cursor.execute(f"""
+                SELECT id, update_date, phone, order_id
+                FROM user_data
+                WHERE {user_where}
+                  AND submitstatus=2
+                  AND create_date >= NOW() - INTERVAL 10 MINUTE
+                ORDER BY create_date DESC
+                LIMIT 1
+            """, (q,))
+            submitted_record = cursor.fetchone()
+
+            if submitted_record:
+'''
+          new = '''        else:
+            print("⏳ 未找到5分钟内 submitstatus=1 的记录")
+
+            # =========================
+            # 2) 查 submitstatus=2（近10分钟），并计算已过时间
+            # tel_data_id 单独轮询时不需要查 user_data。
+            # =========================
+            submitted_record = None
+            if q:
+                cursor.execute(f"""
+                    SELECT id, update_date, phone, order_id
+                    FROM user_data
+                    WHERE {user_where}
+                      AND submitstatus=2
+                      AND create_date >= NOW() - INTERVAL 10 MINUTE
+                    ORDER BY create_date DESC
+                    LIMIT 1
+                """, (q,))
+                submitted_record = cursor.fetchone()
+
+            if submitted_record:
+'''
+          text = replace_once(text, old, new, 'backend: skip submitted lookup for id-only polling')
+
+          old = '''        # =========================
+        # 3) 查询 tel_data 中当天的充值结果
+        # =========================
+        cursor.execute(f"""
+            SELECT r_status, zhanghu, orderID, tel, create_date
+            FROM tel_data
+            WHERE {tel_where}
+              AND init='0'
+              
+            ORDER BY create_date DESC
+            LIMIT 1
+        """, (q,))
+        tel_record = cursor.fetchone()
+'''
+          new = '''        # =========================
+        # 3) 查询正式充值 tel_data 记录
+        # 优先按 tel_data.id 精确查询；兼容旧缓存时才按手机号/兑换码兜底。
+        # 无论哪种方式，都必须排除获取验证码记录(init=1 / yzm_status=1)。
+        # =========================
+        if tel_data_id:
+            cursor.execute("""
+                SELECT id, r_status, zhanghu, orderID, tel, create_date
+                FROM tel_data
+                WHERE id=%s
+                  AND init='0'
+                  AND yzm_status='3'
+                LIMIT 1
+            """, (tel_data_id,))
+        elif q:
+            cursor.execute(f"""
+                SELECT id, r_status, zhanghu, orderID, tel, create_date
+                FROM tel_data
+                WHERE {tel_where}
+                  AND init='0'
+                  AND yzm_status='3'
+                ORDER BY id DESC
+                LIMIT 1
+            """, (q,))
+        else:
+            tel_record = None
+
+        if tel_data_id or q:
+            tel_record = cursor.fetchone()
+'''
+          text = replace_once(text, old, new, 'backend: exact formal recharge status query')
+
+          old = '''        if tel_record:
+            print("✅ 找到 tel_data 中 r_status：", tel_record.get('r_status'))
+            result['r_status'] = tel_record.get('r_status', '') or ''
+
+            # tel_data 命名：orderID / tel
+'''
+          new = '''        if tel_record:
+            print("✅ 找到正式充值 tel_data 中 r_status：", tel_record.get('r_status'))
+            result['tel_data_id'] = tel_record.get('id')
+            result['r_status'] = tel_record.get('r_status', '') or ''
+
+            # tel_data 命名：orderID / tel
+'''
+          text = replace_once(text, old, new, 'backend: return formal tel_data id')
+
+          p.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Validate patched files
+        shell: bash
+        run: |
+          python -m py_compile server/kugo_mergedl.py
+          grep -q "tel_data_id: telDataID" usrvip/index.html
+          grep -q "AND yzm_status='3'" server/kugo_mergedl.py
+          grep -q "AND init='1'" server/kugo_mergedl.py
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add usrvip/index.html server/kugo_mergedl.py
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "Fix recharge status tracking by formal tel_data record"
+          git push origin HEAD:main
