@@ -35,12 +35,9 @@ try {
             $r_status = $row['r_status'];
 
             try {
-                $mail = koko_create_mailer();
-                $mail->isHTML(true);
-                $mail->Subject = '充值异常';
-                $mail->Body = "异常状态: " . htmlspecialchars($r_status, ENT_QUOTES, 'UTF-8') . "<br>异常详情: " . htmlspecialchars($details, ENT_QUOTES, 'UTF-8');
-
-                if ($mail->send()) {
+                $notifyBody = "异常状态: {$r_status}
+异常详情: {$details}";
+                if (koko_send_wecom_text('充值异常', $notifyBody)) {
                     echo "企业微信通知发送成功: ID $id, 状态: $r_status, 详情: $details<br>";
 
                     // 标记为已发送

@@ -366,7 +366,7 @@ public function checkNewTasks() {
          * 2. 写入数据库
          * 3. 发送企业微信通知
          */
-        $emailBody = "检测到新任务：\n\n";
+        $notifyBody = "检测到新任务：\n\n";
 
         foreach ($tasks as $task) {
             $commentDetails = sprintf(
@@ -404,25 +404,25 @@ public function checkNewTasks() {
 
             /**
              * affected_rows > 0 才说明本次真的写入成功
-             * 避免重复发邮件
+             * 避免重复发送通知
              */
             if ($stmt_update->affected_rows > 0) {
-                $emailBody .= "ID：{$task['id']}\n";
-                $emailBody .= "tel：{$task['tel']}\n";
-                $emailBody .= "yzm：{$task['yzm']}\n";
-                $emailBody .= "zhanghu：{$task['zhanghu']}\n";
-                $emailBody .= "orderID：{$task['orderID']}\n";
-                $emailBody .= "status：{$task['status']}\n";
-                $emailBody .= "r_status：{$task['r_status']}\n";
-                $emailBody .= "details：{$commentDetails}\n";
-                $emailBody .= "--------------------------\n\n";
+                $notifyBody .= "ID：{$task['id']}\n";
+                $notifyBody .= "tel：{$task['tel']}\n";
+                $notifyBody .= "yzm：{$task['yzm']}\n";
+                $notifyBody .= "zhanghu：{$task['zhanghu']}\n";
+                $notifyBody .= "orderID：{$task['orderID']}\n";
+                $notifyBody .= "status：{$task['status']}\n";
+                $notifyBody .= "r_status：{$task['r_status']}\n";
+                $notifyBody .= "details：{$commentDetails}\n";
+                $notifyBody .= "--------------------------\n\n";
             }
 
             $stmt_update->close();
         }
 
         // 如果没有真正更新任何记录，就不发邮件
-        if (trim($emailBody) === "检测到新任务：") {
+        if (trim($notifyBody) === "检测到新任务：") {
             header('Content-Type: application/json; charset=utf-8');
             echo json_encode([
                 'success' => true,
@@ -432,15 +432,15 @@ public function checkNewTasks() {
             exit;
         }
 
-        $mailEnabled = koko_get_setting('notify_new_recharge_task', '1') === '1';
-        if ($mailEnabled) {
-            $this->sendNewTaskNotification($emailBody);
+        $notifyEnabled = koko_get_setting('notify_new_recharge_task', '1') === '1';
+        if ($notifyEnabled) {
+            $this->sendNewTaskNotification($notifyBody);
         }
 
         header('Content-Type: application/json; charset=utf-8');
         echo json_encode([
             'success' => true,
-            'message' => $mailEnabled ? '新任务已写入 details，并已发送企业微信通知' : '新任务已写入 details，企业微信通知已关闭',
+            'message' => $notifyEnabled ? '新任务已写入 details，并已发送企业微信通知' : '新任务已写入 details，企业微信通知已关闭',
             'count' => count($tasks)
         ], JSON_UNESCAPED_UNICODE);
 
@@ -457,15 +457,8 @@ public function checkNewTasks() {
 }
 private function sendNewTaskNotification($body) {
     try {
-        $mail = koko_create_mailer();
-        $mail->Subject = '检测到新充值任务';
-        $mail->Body = $body;
-
-        $mail->send();
-
-        return true;
-
-    } catch (Exception $e) {
+        return koko_send_wecom_text('检测到新充值任务', $body);
+    } catch (Throwable $e) {
         throw new Exception("企业微信通知发送失败: " . $e->getMessage());
     }
 }

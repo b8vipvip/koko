@@ -93,15 +93,10 @@ function getLatestBalancesMap($db, $deviceIds) {
 // ✅ 发企业微信通知
 function sendAbnormalWeCom($abnormalDevices) {
   try {
-    $mail = koko_create_mailer();
-    $mail->isHTML(true);
-    $mail->Subject = '设备异常通知';
-
     $deviceList = implode(', ', $abnormalDevices);
-    $mail->Body = "以下设备出现异常：<br><strong>{$deviceList}</strong><br>请尽快处理！";
-
-    return $mail->send();
-  } catch (Exception $e) {
+    return koko_send_wecom_text('设备异常通知', "以下设备出现异常：{$deviceList}
+请尽快处理！");
+  } catch (Throwable $e) {
     error_log("企业微信通知发送失败: " . $e->getMessage());
     return false;
   }

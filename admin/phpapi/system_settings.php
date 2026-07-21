@@ -2,7 +2,6 @@
 require_once __DIR__ . '/../lib/config.php';
 
 header('Content-Type: application/json; charset=utf-8');
-koko_require_admin_token(false);
 
 function koko_system_setting_keys() {
     return [
