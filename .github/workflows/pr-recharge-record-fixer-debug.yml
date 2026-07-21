@@ -32,7 +32,7 @@ jobs:
               code = '\n'.join(line[10:] if line.startswith('          ') else line for line in block.splitlines())
               exec(compile(code, 'embedded_recharge_fixer.py', 'exec'), {})
               Path('.github/fixer-diagnostic.txt').write_text('PATCH_OK\n', encoding='utf-8')
-          except Exception:
+          except BaseException:
               Path('.github/fixer-diagnostic.txt').write_text(traceback.format_exc(), encoding='utf-8')
           PY
 
