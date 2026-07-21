@@ -90,8 +90,8 @@ function getLatestBalancesMap($db, $deviceIds) {
   return $map;
 }
 
-// ✅ 发邮件
-function sendAbnormalMail($abnormalDevices) {
+// ✅ 发企业微信通知
+function sendAbnormalWeCom($abnormalDevices) {
   try {
     $mail = koko_create_mailer();
     $mail->isHTML(true);
@@ -102,7 +102,7 @@ function sendAbnormalMail($abnormalDevices) {
 
     return $mail->send();
   } catch (Exception $e) {
-    error_log("邮件发送失败: " . $e->getMessage());
+    error_log("企业微信通知发送失败: " . $e->getMessage());
     return false;
   }
 }
@@ -146,14 +146,14 @@ try {
     ];
   }
 
-  // 邮件节流：同一种设备离线通知最小间隔 60 秒（可由系统配置覆盖）。
+  // 通知节流：同一种设备离线通知最小间隔 60 秒（可由系统配置覆盖）。
   $canSend = (koko_get_setting('notify_device_offline', '1') === '1'
     && !empty($abnormalDevices)
     && !$inNightTime
     && koko_mail_cooldown_ready('mail_last_sent_device_offline_at', $now));
 
   if ($canSend) {
-    $ok = sendAbnormalMail($abnormalDevices);
+    $ok = sendAbnormalWeCom($abnormalDevices);
     if ($ok) koko_mark_mail_sent('mail_last_sent_device_offline_at', $now);
   }
 
@@ -161,7 +161,7 @@ try {
 
 } catch (Exception $e) {
   error_log("系统异常: " . $e->getMessage());
-  koko_send_backend_error_mail('admin/dev.php', $e->getMessage());
+  koko_send_backend_error_notification('admin/dev.php', $e->getMessage());
   http_response_code(500);
   echo json_encode(['error' => true, 'message' => '服务器内部错误'], JSON_UNESCAPED_UNICODE);
 }

@@ -364,7 +364,7 @@ public function checkNewTasks() {
          * 有新任务时：
          * 1. 自动生成 details
          * 2. 写入数据库
-         * 3. 发送邮件
+         * 3. 发送企业微信通知
          */
         $emailBody = "检测到新任务：\n\n";
 
@@ -434,13 +434,13 @@ public function checkNewTasks() {
 
         $mailEnabled = koko_get_setting('notify_new_recharge_task', '1') === '1';
         if ($mailEnabled) {
-            $this->sendNewTaskEmail($emailBody);
+            $this->sendNewTaskNotification($emailBody);
         }
 
         header('Content-Type: application/json; charset=utf-8');
         echo json_encode([
             'success' => true,
-            'message' => $mailEnabled ? '新任务已写入 details，并已发送邮件' : '新任务已写入 details，邮件通知已关闭',
+            'message' => $mailEnabled ? '新任务已写入 details，并已发送企业微信通知' : '新任务已写入 details，企业微信通知已关闭',
             'count' => count($tasks)
         ], JSON_UNESCAPED_UNICODE);
 
@@ -455,7 +455,7 @@ public function checkNewTasks() {
 
     exit;
 }
-private function sendNewTaskEmail($body) {
+private function sendNewTaskNotification($body) {
     try {
         $mail = koko_create_mailer();
         $mail->Subject = '检测到新充值任务';
@@ -466,7 +466,7 @@ private function sendNewTaskEmail($body) {
         return true;
 
     } catch (Exception $e) {
-        throw new Exception("邮件发送失败: " . $e->getMessage());
+        throw new Exception("企业微信通知发送失败: " . $e->getMessage());
     }
 }
 // public function getDetails($id) {

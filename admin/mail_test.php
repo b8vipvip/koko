@@ -3,14 +3,9 @@ require_once __DIR__ . '/lib/mailer.php';
 
 try {
     koko_require_admin_token(false);
-
-    $mail = koko_create_mailer();
-    $mail->Subject = '邮件测试';
-    $mail->Body = '这是一封测试邮件';
-
-    $mail->send();
-    echo "邮件发送成功";
-} catch (Exception $e) {
+    koko_send_wecom_text('企业微信测试通知', '这是一条来自 Koko 管理后台的企业微信测试通知。');
+    echo "企业微信通知发送成功";
+} catch (Throwable $e) {
     http_response_code(500);
-    echo "邮件发送失败：" . $e->getMessage();
+    echo "企业微信通知发送失败：" . $e->getMessage();
 }

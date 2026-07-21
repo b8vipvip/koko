@@ -48,7 +48,14 @@
         success: true,
         notify_backend_error: 1,
         notify_device_offline: 1,
-        notify_new_recharge_task: 1
+        notify_new_recharge_task: 1,
+        wecom_corp_id: '',
+        wecom_agent_secret: '',
+        wecom_agent_secret_configured: false,
+        wecom_agent_id: '',
+        wecom_to_user: '@all',
+        wecom_to_party: '',
+        wecom_to_tag: ''
       };
     }
   }
@@ -100,17 +107,43 @@
       + '</div>';
   }
 
+  function escapeAttr(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  function inputHtml(id, title, desc, value, placeholder, type) {
+    return ''
+      + '<div class="koko-setting-row" style="padding:12px 0;border-bottom:1px solid #f0f0f0;">'
+      + '  <div style="font-weight:600;color:#222;font-size:14px;margin-bottom:4px;">' + title + '</div>'
+      + '  <div style="font-size:12px;color:#888;line-height:1.5;margin-bottom:7px;">' + desc + '</div>'
+      + '  <input id="' + id + '" type="' + (type || 'text') + '" value="' + escapeAttr(value || '') + '" placeholder="' + escapeAttr(placeholder || '') + '" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #ddd;border-radius:5px;">'
+      + '</div>';
+  }
+
   function openSettingsModal(settings) {
     var backendError = toBool(getSetting(settings, 'notify_backend_error', 1));
     var deviceOffline = toBool(getSetting(settings, 'notify_device_offline', 1));
     var newRecharge = toBool(getSetting(settings, 'notify_new_recharge_task', 1));
+    var secretConfigured = toBool(getSetting(settings, 'wecom_agent_secret_configured', false));
 
     var html = ''
-      + '<div id="koko-system-settings-v8" style="padding:14px 18px 4px;background:#fff;box-sizing:border-box;">'
-      + rowHtml('kokoNotifyBackendError', '后端错误邮件通知', '后端接口、任务或系统异常时发送邮件提醒。', backendError)
-      + rowHtml('kokoNotifyDeviceOffline', '设备离线邮件通知', '检测到设备掉线、异常不可用时发送邮件提醒。', deviceOffline)
-      + rowHtml('kokoNotifyNewRechargeTask', '新充值任务邮件通知', '收到新的充值任务或待处理任务时发送邮件提醒。', newRecharge)
-      + '<div style="font-size:12px;color:#999;line-height:1.6;margin-top:12px;">兑换链接已移动到 ka.k2n.cn/kami.html 页面中配置，这里不再显示兑换链接。</div>'
+      + '<div id="koko-system-settings-v8" style="padding:14px 18px 4px;background:#fff;box-sizing:border-box;max-height:72vh;overflow-y:auto;">'
+      + '<div style="font-size:15px;font-weight:700;color:#111;padding:4px 0 8px;">企业微信自建应用</div>'
+      + inputHtml('kokoWecomCorpId', '企业 ID（CorpID）', '企业微信管理后台「我的企业」中的企业 ID。', getSetting(settings, 'wecom_corp_id', ''), 'wwxxxxxxxxxxxxxxxx', 'text')
+      + inputHtml('kokoWecomAgentSecret', '应用 Secret', '自建应用的 Secret。为安全起见已配置的 Secret 不会从服务器回显，留空表示不修改。', '', secretConfigured ? '已配置，留空不修改' : '请输入应用 Secret', 'password')
+      + inputHtml('kokoWecomAgentId', '应用 AgentId', '自建应用详情页中的 AgentId（正整数）。', getSetting(settings, 'wecom_agent_id', ''), '例如 1000002', 'number')
+      + inputHtml('kokoWecomToUser', '接收成员', '支持 @all，或使用竖线分隔多个企业微信成员账号，例如 user1|user2。', getSetting(settings, 'wecom_to_user', '@all'), '@all', 'text')
+      + inputHtml('kokoWecomToParty', '接收部门（可选）', '多个部门 ID 使用竖线分隔；未使用可留空。', getSetting(settings, 'wecom_to_party', ''), '例如 1|2', 'text')
+      + inputHtml('kokoWecomToTag', '接收标签（可选）', '多个标签 ID 使用竖线分隔；未使用可留空。', getSetting(settings, 'wecom_to_tag', ''), '例如 1|3', 'text')
+      + '<div style="font-size:15px;font-weight:700;color:#111;padding:16px 0 2px;">通知开关</div>'
+      + rowHtml('kokoNotifyBackendError', '后端错误企业微信通知', '后端接口、任务或系统异常时发送企业微信提醒。', backendError)
+      + rowHtml('kokoNotifyDeviceOffline', '设备离线企业微信通知', '检测到设备掉线、异常不可用时发送企业微信提醒。', deviceOffline)
+      + rowHtml('kokoNotifyNewRechargeTask', '新充值任务企业微信通知', '收到新的正式充值任务或待处理任务时发送企业微信提醒。', newRecharge)
+      + '<div style="font-size:12px;color:#999;line-height:1.6;margin-top:12px;">通知接口统一由后端调用企业微信自建应用发送；原 SMTP 邮箱通知逻辑已停用。</div>'
       + '</div>';
 
     if (!window.layer || !layer.open) {
@@ -121,11 +154,17 @@
     layer.open({
       type: 1,
       title: '系统配置',
-      area: ['min(92vw, 620px)', 'auto'],
+      area: ['min(94vw, 680px)', 'auto'],
       content: html,
       btn: ['保存', '取消'],
       yes: async function (index) {
         var payload = {
+          wecom_corp_id: document.getElementById('kokoWecomCorpId').value.trim(),
+          wecom_agent_secret: document.getElementById('kokoWecomAgentSecret').value.trim(),
+          wecom_agent_id: document.getElementById('kokoWecomAgentId').value.trim(),
+          wecom_to_user: document.getElementById('kokoWecomToUser').value.trim(),
+          wecom_to_party: document.getElementById('kokoWecomToParty').value.trim(),
+          wecom_to_tag: document.getElementById('kokoWecomToTag').value.trim(),
           notify_backend_error: document.getElementById('kokoNotifyBackendError').checked ? 1 : 0,
           notify_device_offline: document.getElementById('kokoNotifyDeviceOffline').checked ? 1 : 0,
           notify_new_recharge_task: document.getElementById('kokoNotifyNewRechargeTask').checked ? 1 : 0
@@ -133,12 +172,10 @@
 
         try {
           var json = await saveSettings(payload);
-
           if (json && json.success === false) {
             throw new Error(json.message || json.error || '保存失败');
           }
-
-          layer.msg('系统配置保存成功');
+          layer.msg('企业微信配置保存成功');
           layer.close(index);
         } catch (e) {
           layer.alert('保存失败：' + e.message);

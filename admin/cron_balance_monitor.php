@@ -39,12 +39,9 @@ try {
     echo "设备308当前余额：$balance_308\n";
 
     if ($balance_157 < $threshold || $balance_178 < $threshold || $balance_188 < $threshold || $balance_198 < $threshold || $balance_208 < $threshold || $balance_308 < $threshold) {
-        $mail = koko_create_mailer();
-        $mail->Subject = '设备余额不足';
-        $mail->Body = "设备157余额：$balance_157 \n设备178余额：$balance_178 \n设备188余额：$balance_188 \n设备198余额：$balance_198 \n设备208余额：$balance_208 \n设备308余额：$balance_308";
-
-        $mail->send();
-        echo "告警邮件已发送\n";
+        $notifyBody = "设备157余额：$balance_157 \n设备178余额：$balance_178 \n设备188余额：$balance_188 \n设备198余额：$balance_198 \n设备208余额：$balance_208 \n设备308余额：$balance_308";
+        koko_send_wecom_text('设备余额不足', $notifyBody);
+        echo "企业微信告警已发送\n";
     } else {
         echo "余额正常\n";
     }

@@ -157,6 +157,12 @@ if (!function_exists('koko_default_settings')) {
             'mail_last_sent_backend_error_at' => '',
             'mail_last_sent_device_offline_at' => '',
             'mail_last_sent_new_task_at' => '',
+            'wecom_corp_id' => '',
+            'wecom_agent_secret' => '',
+            'wecom_agent_id' => '',
+            'wecom_to_user' => '@all',
+            'wecom_to_party' => '',
+            'wecom_to_tag' => '',
         ];
     }
 }
@@ -236,21 +242,6 @@ if (!function_exists('koko_mark_mail_sent')) {
     }
 }
 
-if (!function_exists('koko_mail_config')) {
-    function koko_mail_config() {
-        return [
-            'host' => koko_env('SMTP_HOST', ''),
-            'port' => (int)koko_env('SMTP_PORT', '465'),
-            'username' => koko_env('SMTP_USERNAME', ''),
-            'password' => koko_env('SMTP_PASSWORD', ''),
-            'encryption' => strtolower(koko_env('SMTP_ENCRYPTION', 'ssl')),
-            'from' => koko_env('MAIL_FROM', ''),
-            'from_name' => koko_env('MAIL_FROM_NAME', 'Koko'),
-            'to' => koko_env('MAIL_TO', ''),
-            'to_name' => koko_env('MAIL_TO_NAME', 'Admin'),
-        ];
-    }
-}
 
 if (!function_exists('koko_admin_token')) {
     function koko_admin_token() {

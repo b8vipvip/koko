@@ -5,11 +5,13 @@ All schema changes are MySQL 5.7 compatible: columns are checked through
 information_schema before ALTER TABLE is executed.
 """
 
+import json
 import os
 import re
-import smtplib
+import time
+import urllib.parse
+import urllib.request
 from datetime import datetime, time as dt_time
-from email.mime.text import MIMEText
 
 
 TEL_TASK_COLUMNS = {
@@ -29,6 +31,12 @@ DEFAULT_SETTINGS = {
     "mail_last_sent_backend_error_at": "",
     "mail_last_sent_device_offline_at": "",
     "mail_last_sent_new_task_at": "",
+    "wecom_corp_id": "",
+    "wecom_agent_secret": "",
+    "wecom_agent_id": "",
+    "wecom_to_user": "@all",
+    "wecom_to_party": "",
+    "wecom_to_tag": "",
 }
 
 
@@ -201,12 +209,125 @@ def mark_mail_sent(cursor, setting_key, now=None):
     set_setting(cursor, setting_key, now.strftime("%Y-%m-%d %H:%M:%S"))
 
 
-def send_new_task_mail(rows):
-    host = os.getenv("SMTP_HOST", "")
-    to_addr = os.getenv("MAIL_TO", "")
-    from_addr = os.getenv("MAIL_FROM") or os.getenv("SMTP_USERNAME", "")
-    if not host or not to_addr or not from_addr:
-        return False
+_WECOM_TOKEN_CACHE = {"access_token": "", "expires_at": 0.0}
+
+
+def get_wecom_config(cursor):
+    return {
+        "corp_id": get_setting(cursor, "wecom_corp_id", "").strip(),
+        "agent_secret": get_setting(cursor, "wecom_agent_secret", "").strip(),
+        "agent_id": get_setting(cursor, "wecom_agent_id", "").strip(),
+        "to_user": get_setting(cursor, "wecom_to_user", "@all").strip(),
+        "to_party": get_setting(cursor, "wecom_to_party", "").strip(),
+        "to_tag": get_setting(cursor, "wecom_to_tag", "").strip(),
+    }
+
+
+def _wecom_http_json(url, payload=None):
+    data = None
+    headers = {}
+    if payload is not None:
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers["Content-Type"] = "application/json; charset=utf-8"
+    request = urllib.request.Request(url, data=data, headers=headers, method="POST" if payload is not None else "GET")
+    with urllib.request.urlopen(request, timeout=12) as response:
+        body = response.read().decode("utf-8", errors="replace")
+    result = json.loads(body)
+    if not isinstance(result, dict):
+        raise RuntimeError("企业微信接口返回格式异常")
+    return result
+
+
+def get_wecom_access_token(cursor, force_refresh=False):
+    now = time.time()
+    if (
+        not force_refresh
+        and _WECOM_TOKEN_CACHE.get("access_token")
+        and float(_WECOM_TOKEN_CACHE.get("expires_at") or 0) > now + 60
+    ):
+        return _WECOM_TOKEN_CACHE["access_token"]
+
+    cfg = get_wecom_config(cursor)
+    if not cfg["corp_id"] or not cfg["agent_secret"]:
+        raise RuntimeError("企业微信 CorpID 或应用 Secret 未配置")
+
+    url = "https://qyapi.weixin.qq.com/cgi-bin/gettoken?" + urllib.parse.urlencode({
+        "corpid": cfg["corp_id"],
+        "corpsecret": cfg["agent_secret"],
+    })
+    result = _wecom_http_json(url)
+    if int(result.get("errcode", -1)) != 0 or not result.get("access_token"):
+        raise RuntimeError("获取企业微信 access_token 失败: {}".format(result.get("errmsg", "unknown")))
+
+    token = str(result["access_token"])
+    expires_in = max(120, int(result.get("expires_in") or 7200))
+    _WECOM_TOKEN_CACHE["access_token"] = token
+    _WECOM_TOKEN_CACHE["expires_at"] = now + expires_in - 120
+    return token
+
+
+def _split_wecom_text(text, max_bytes=1800):
+    text = str(text or "")
+    chunks = []
+    current = []
+    current_bytes = 0
+    for char in text:
+        char_bytes = len(char.encode("utf-8"))
+        if current and current_bytes + char_bytes > max_bytes:
+            chunks.append("".join(current))
+            current = []
+            current_bytes = 0
+        current.append(char)
+        current_bytes += char_bytes
+    if current:
+        chunks.append("".join(current))
+    return chunks or [""]
+
+
+def send_wecom_text(cursor, subject, body):
+    cfg = get_wecom_config(cursor)
+    try:
+        agent_id = int(cfg["agent_id"])
+    except (TypeError, ValueError):
+        agent_id = 0
+    if not cfg["corp_id"] or not cfg["agent_secret"] or agent_id <= 0:
+        raise RuntimeError("企业微信 CorpID、应用 Secret 或 AgentId 未完整配置")
+    if not (cfg["to_user"] or cfg["to_party"] or cfg["to_tag"]):
+        raise RuntimeError("企业微信接收成员、部门、标签至少配置一项")
+
+    content = "【{}】\n{}".format(str(subject or "").strip(), str(body or "").strip()).strip()
+    token = get_wecom_access_token(cursor)
+
+    for chunk in _split_wecom_text(content):
+        payload = {
+            "msgtype": "text",
+            "agentid": agent_id,
+            "text": {"content": chunk},
+            "safe": 0,
+        }
+        if cfg["to_user"]:
+            payload["touser"] = cfg["to_user"]
+        if cfg["to_party"]:
+            payload["toparty"] = cfg["to_party"]
+        if cfg["to_tag"]:
+            payload["totag"] = cfg["to_tag"]
+
+        def do_send(access_token):
+            url = "https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=" + urllib.parse.quote(access_token, safe="")
+            return _wecom_http_json(url, payload)
+
+        result = do_send(token)
+        errcode = int(result.get("errcode", -1))
+        if errcode in (40014, 42001):
+            token = get_wecom_access_token(cursor, force_refresh=True)
+            result = do_send(token)
+            errcode = int(result.get("errcode", -1))
+        if errcode != 0:
+            raise RuntimeError("企业微信通知发送失败: {}".format(result.get("errmsg", "errcode={}".format(errcode))))
+    return True
+
+
+def send_new_task_wecom(cursor, rows):
     if isinstance(rows, dict):
         rows = [rows]
     body_keys = ["id", "tel", "yzm", "orderID", "zhanghu", "r_status", "create_date", "submit_portal", "submit_domain"]
@@ -217,22 +338,7 @@ def send_new_task_mail(rows):
             "\n".join("{}: {}".format(k, row.get(k, "")) for k in body_keys if k in row),
         ))
     body = "本次扫描到 {} 条新充值任务：\n\n{}".format(len(rows), "\n\n".join(blocks))
-    msg = MIMEText(body, "plain", "utf-8")
-    msg["Subject"] = "新充值任务通知"
-    msg["From"] = from_addr
-    msg["To"] = to_addr
-    port = int(os.getenv("SMTP_PORT", "465"))
-    username = os.getenv("SMTP_USERNAME", "")
-    password = os.getenv("SMTP_PASSWORD", "")
-    encryption = os.getenv("SMTP_ENCRYPTION", "ssl").lower()
-    smtp_cls = smtplib.SMTP_SSL if encryption == "ssl" else smtplib.SMTP
-    with smtp_cls(host, port, timeout=10) as smtp:
-        if encryption == "tls":
-            smtp.starttls()
-        if username:
-            smtp.login(username, password)
-        smtp.sendmail(from_addr, [to_addr], msg.as_string())
-    return True
+    return send_wecom_text(cursor, "新充值任务通知", body)
 
 
 def notify_new_tasks(conn, limit=20):
@@ -272,7 +378,7 @@ def notify_new_tasks(conn, limit=20):
         if not mail_cooldown_ready(cursor, "mail_last_sent_new_task_at"):
             conn.commit()
             return 0
-        if send_new_task_mail(rows):
+        if send_new_task_wecom(cursor, rows):
             ids = [row.get("id") for row in rows if row.get("id") is not None]
             placeholders = ", ".join(["%s"] * len(ids))
             cursor.execute(
