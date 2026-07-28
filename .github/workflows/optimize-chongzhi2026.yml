@@ -21,9 +21,28 @@ jobs:
           fetch-depth: 0
 
       - name: Apply conservative source fixes
-        run: python anjianjingling/optimize_chongzhi2026_once.py
+        id: optimize
+        shell: bash
+        run: |
+          set +e
+          python anjianjingling/optimize_chongzhi2026_once.py > anjianjingling/optimizer-run.log 2>&1
+          code=$?
+          cat anjianjingling/optimizer-run.log
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Save failure log
+        if: steps.optimize.outputs.exit_code != '0'
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add anjianjingling/optimizer-run.log
+          git commit -m 'Capture 充值2026 optimizer failure [skip ci]'
+          git push origin HEAD:${{ github.head_ref }}
 
       - name: Commit optimized source to PR branch
+        if: steps.optimize.outputs.exit_code == '0'
         shell: bash
         run: |
           git config user.name 'github-actions[bot]'
@@ -31,6 +50,7 @@ jobs:
           rm -f .github/workflows/optimize-chongzhi2026.yml
           rm -f anjianjingling/optimize_chongzhi2026_once.py
           rm -f anjianjingling/.optimize-trigger
+          rm -f anjianjingling/optimizer-run.log
           git add anjianjingling/ .github/workflows/
           git diff --cached --stat
           git diff --cached --check
