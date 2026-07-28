@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - '.github/workflows/optimize-chongzhi2026.yml'
+      - 'anjianjingling/.optimize-trigger'
 
 permissions:
   contents: write
@@ -28,6 +29,7 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           rm -f .github/workflows/optimize-chongzhi2026.yml
           rm -f anjianjingling/optimize_chongzhi2026_once.py
+          rm -f anjianjingling/.optimize-trigger
           git add anjianjingling/ .github/workflows/
           git diff --cached --stat
           git diff --cached --check
