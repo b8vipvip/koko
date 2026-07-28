@@ -1,0 +1,150 @@
+name: Extract 充值2026 MQB
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'anjianjingling/充值2026.mqb'
+      - '.github/workflows/extract-chongzhi2026-mqb.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Extract MQB and ATC resources
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import shutil
+          import struct
+          import zipfile
+
+          ROOT = Path('anjianjingling')
+          MQB = ROOT / '充值2026.mqb'
+          ATTACH_DIR = ROOT / '充值2026_Attachment'
+          MANIFEST = ROOT / '充值2026_附件清单.md'
+
+          def clear_utf8_flags(data: bytes) -> bytes:
+              """按 ZIP 中央目录精确定位条目，只清除错误的 UTF-8 文件名标志。"""
+              b = bytearray(data)
+              eocd = b.rfind(b'PK\x05\x06')
+              if eocd < 0:
+                  raise RuntimeError('ZIP EOCD not found')
+
+              total = struct.unpack_from('<H', b, eocd + 10)[0]
+              cd_offset = struct.unpack_from('<I', b, eocd + 16)[0]
+              pos = cd_offset
+
+              for _ in range(total):
+                  if b[pos:pos + 4] != b'PK\x01\x02':
+                      raise RuntimeError(f'Bad central directory header at {pos}')
+
+                  flags = struct.unpack_from('<H', b, pos + 8)[0]
+                  struct.pack_into('<H', b, pos + 8, flags & ~0x800)
+
+                  name_len, extra_len, comment_len = struct.unpack_from('<HHH', b, pos + 28)
+                  local_offset = struct.unpack_from('<I', b, pos + 42)[0]
+                  if b[local_offset:local_offset + 4] != b'PK\x03\x04':
+                      raise RuntimeError(f'Bad local header at {local_offset}')
+
+                  local_flags = struct.unpack_from('<H', b, local_offset + 6)[0]
+                  struct.pack_into('<H', b, local_offset + 6, local_flags & ~0x800)
+                  pos += 46 + name_len + extra_len + comment_len
+
+              return bytes(b)
+
+          def extract_weird_zip(src: Path, dst: Path, strip_prefix: str = ''):
+              fixed = src.with_name(src.name + '.fixed-for-extract.zip')
+              fixed.write_bytes(clear_utf8_flags(src.read_bytes()))
+              try:
+                  with zipfile.ZipFile(fixed, 'r', metadata_encoding='gb18030') as zf:
+                      dst.mkdir(parents=True, exist_ok=True)
+                      for info in zf.infolist():
+                          name = info.filename.replace('\\', '/')
+                          if strip_prefix and name.startswith(strip_prefix):
+                              name = name[len(strip_prefix):]
+                          if not name or name.endswith('/'):
+                              continue
+
+                          target = (dst / name).resolve()
+                          dst_resolved = dst.resolve()
+                          if dst_resolved not in target.parents and target != dst_resolved:
+                              raise RuntimeError(f'Unsafe ZIP path: {name}')
+
+                          target.parent.mkdir(parents=True, exist_ok=True)
+                          target.write_bytes(zf.read(info))
+              finally:
+                  fixed.unlink(missing_ok=True)
+
+          if not MQB.exists():
+              raise SystemExit(f'Cannot find {MQB}')
+
+          # 1) 外层 MQB -> .mq/.prop/.uip/.uis/.atc
+          extract_weird_zip(MQB, ROOT)
+
+          atc_files = list(ROOT.glob('充值2026(*).atc'))
+          if len(atc_files) != 1:
+              raise SystemExit(f'Expected exactly one ATC, got {len(atc_files)}')
+          atc = atc_files[0]
+
+          # 2) ATC -> 可直接在 GitHub/Codex 查看和修改的附件目录
+          if ATTACH_DIR.exists():
+              shutil.rmtree(ATTACH_DIR)
+          extract_weird_zip(atc, ATTACH_DIR, strip_prefix='Attachment/')
+
+          files = sorted(p for p in ATTACH_DIR.rglob('*') if p.is_file())
+          pngs = [p for p in files if p.suffix.lower() == '.png']
+          jsons = [p for p in files if p.suffix.lower() == '.json']
+
+          if len(files) != 588 or len(pngs) != 528 or len(jsons) != 60:
+              raise SystemExit(
+                  f'Unexpected attachment count: total={len(files)}, png={len(pngs)}, json={len(jsons)}'
+              )
+
+          lines = [
+              '# 充值2026 `.atc` 附件清单',
+              '',
+              f'共 **{len(files)}** 个附件：**{len(pngs)} 个 PNG**、**{len(jsons)} 个 JSON**。',
+              '',
+              '实际展开文件位于 `充值2026_Attachment/`。修改识图素材前，建议先在 `.mq` 中搜索同名文件，确认调用位置和业务分支。',
+              '',
+              '## PNG（找图/状态截图）',
+              '',
+          ]
+          lines += [f'- `{p.relative_to(ATTACH_DIR).as_posix()}`' for p in pngs]
+          lines += ['', '## JSON（界面节点/元素属性）', '']
+          lines += [f'- `{p.relative_to(ATTACH_DIR).as_posix()}`' for p in jsons]
+          MANIFEST.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+
+          print('Extracted core files:')
+          for p in sorted(ROOT.glob('充值2026(db666069-c1bb-4a3a-b006-f19a0373a7f0).*')):
+              print(' -', p, p.stat().st_size)
+          print(f'Attachments: {len(files)} total / {len(pngs)} PNG / {len(jsons)} JSON')
+          PY
+
+      - name: Commit extracted files
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add anjianjingling/
+          if git diff --cached --quiet; then
+            echo 'No extracted-file changes to commit.'
+            exit 0
+          fi
+          git commit -m 'Extract 充值2026 MQB resources'
+          git push
