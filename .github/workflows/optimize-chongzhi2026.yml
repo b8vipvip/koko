@@ -1,0 +1,441 @@
+name: Optimize 充值2026 source
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/optimize-chongzhi2026.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  optimize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply conservative source fixes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          SOURCE = Path('anjianjingling/充值2026(db666069-c1bb-4a3a-b006-f19a0373a7f0).mq')
+          EXTRACT_WF = Path('.github/workflows/extract-chongzhi2026-mqb.yml')
+          DOC = Path('anjianjingling/充值2026_优化记录.md')
+
+          raw = SOURCE.read_bytes()
+          bom = b'\xef\xbb\xbf' if raw.startswith(b'\xef\xbb\xbf') else b''
+          body = raw[len(bom):].decode('utf-8')
+          newline = '\r\n' if body.count('\r\n') > body.count('\n') / 2 else '\n'
+          text = body.replace('\r\n', '\n')
+
+          def replace_once(old, new, label):
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f'{label}: expected 1 match, got {count}')
+              text = text.replace(old, new, 1)
+              print('OK:', label)
+
+          def replace_between(start, end, new, label):
+              global text
+              s = text.find(start)
+              if s < 0:
+                  raise RuntimeError(f'{label}: start marker not found')
+              e = text.find(end, s)
+              if e < 0:
+                  raise RuntimeError(f'{label}: end marker not found')
+              if text.find(start, s + 1) >= 0:
+                  raise RuntimeError(f'{label}: start marker is not unique')
+              text = text[:s] + new + text[e:]
+              print('OK:', label)
+
+          def replace_function(header, new, label):
+              global text
+              pattern = r'(?ms)^' + re.escape(header) + r'\n.*?^End Function\n'
+              text2, count = re.subn(pattern, new.rstrip('\n') + '\n', text, count=1)
+              if count != 1:
+                  raise RuntimeError(f'{label}: expected 1 function, got {count}')
+              text = text2
+              print('OK:', label)
+
+          # 1. 任务接口：只有字段完整才退出轮询，避免 a[1]..a[13] 越界。
+          task_start = '        If uget = "" Then\n            TracePrint "kong"'
+          task_end = '    Delay 500\nLoop'
+          task_new = '''        If uget = "" Then
+              TracePrint "任务接口暂无数据"
+              Delay 2680
+          Else
+              a = Split(uget, ",")
+              If UBound(a) >= 13 Then
+                  TracePrint "任务数据有效"
+                  Exit Do
+              Else
+                  TracePrint "任务数据字段不足，忽略本次返回：" & uget
+                  Delay 1000
+              End If
+          End If
+      Next
+      
+'''.replace('      ', '    ', 1)
+          # 上面只调整首层缩进，保持按键精灵原有层级。
+          task_new = '''        If uget = "" Then
+              TracePrint "任务接口暂无数据"
+              Delay 2680
+          Else
+              a = Split(uget, ",")
+              If UBound(a) >= 13 Then
+                  TracePrint "任务数据有效"
+                  Exit Do
+              Else
+                  TracePrint "任务数据字段不足，忽略本次返回：" & uget
+                  Delay 1000
+              End If
+          End If
+      Next
+      
+'''
+          task_new = task_new.replace('          ', '        ').replace('      Next', '    Next').replace('      \n', '    \n')
+          replace_between(task_start, task_end, task_new, '任务数据字段校验')
+
+          # 2. 会员规格映射：把 7 个重复分支缩成 3 类前缀判断。
+          spec_start = 'If 会员规格 = "hh1" Then \n    pxtype= "h"&xps'
+          spec_end = 'TracePrint pxtype'
+          spec_new = '''If Left(会员规格, 2) = "hh" Then
+    pxtype = "h" & xps
+ElseIf Left(会员规格, 2) = "cj" Then
+    pxtype = "c" & xps
+ElseIf Left(会员规格, 2) = "ct" Then
+    pxtype = "t" & xps
+Else
+    pxtype = ""
+    TracePrint "未知会员规格：" & 会员规格
+End If
+'''
+          replace_between(spec_start, spec_end, spec_new, '会员规格映射去重')
+
+          # 3. 支付完成后的返回逻辑：删除永远不可达的第二个 app 分支，并复用 BackN。
+          pay_start = '    If 支付对象 = "app" Then '
+          pay_end = '    run (code)\nEnd Function'
+          pay_new = '''    If 支付对象 = "app" Then
+        TracePrint "返回2次"
+        BackN 2, 200
+    ElseIf 支付对象 = "web" Then
+        RunApp kg
+        TracePrint "返回2次"
+        BackN 2, 200
+    End If
+    If 赠送券 = true Then
+        TracePrint "返回2次"
+        BackN 2, 200
+    End If
+'''
+          replace_between(pay_start, pay_end, pay_new, '支付返回分支去重')
+
+          # 4. c_status：原代码解析 JSON 后没有把结果写回全局 c_status。
+          cstatus_new = '''Function cstatus(ids)
+    Dim post数据,返回值,k,v,新状态
+    post数据 = ids
+    TracePrint "刷新c_status"
+    返回值 = Url.Post("http://127.0.0.1:5000/c_status", post数据)
+    TracePrint 返回值
+    
+    If 返回值 = "" Then
+        TracePrint "c_status接口无返回，保留原状态：" & c_status
+        Exit Function
+    End If
+    
+    返回值 = Encode.JsonToTable(返回值)
+    新状态 = ""
+    For Each k , v In 返回值
+        If CStr(k) = "c_status" or CStr(k) = "status" Then
+            新状态 = v
+            Exit For
+        ElseIf IsNumeric(v) Then
+            新状态 = v
+        ElseIf IsNumeric(k) Then
+            新状态 = k
+        End If
+    Next
+    
+    If IsNumeric(新状态) Then
+        c_status = CInt(新状态)
+        TracePrint "最新c_status=" & c_status
+    Else
+        TracePrint "无法解析c_status，保留原状态：" & c_status
+    End If
+End Function
+'''
+          replace_function('Function cstatus(ids)', cstatus_new, 'c_status 实时刷新')
+
+          # 5. 明确变量写错：该手动订单分支应修改全局 oid，而不是形参 order_ID。
+          replace_once('        order_ID="手动订单"\n        Exit Function', '        oid="手动订单"\n        Exit Function', '手动订单 oid 变量修复')
+
+          # 6. order 接口：先校验空响应/字段数量/价格类型，再索引数组。
+          order_start = '    // 在order_data_anj表中查询orderID字段的status的值'
+          order_end = 'End Function\n\n// 遍历输出结果'
+          order_new = '''    // 在order_data_anj表中查询orderID字段的status的值
+    uget = URL.Get("http://127.0.0.1:5000/orderid_find?orderid=" & oid , 60)
+    TracePrint uget
+    
+    If uget = "" Then
+        TracePrint "订单接口无返回"
+        status id, "无效订单", 2, "订单接口无返回"
+        RestartScript
+    End If
+    
+    rets = Split(uget, ",")
+    If UBound(rets) < 1 Then
+        TracePrint "订单接口返回格式异常：" & uget
+        status id, "无效订单", 2, "订单接口返回格式异常"
+        RestartScript
+    End If
+    
+    order_status = rets[1]
+    TracePrint order_status
+    
+    If order_status = "" or IsNull(order_status) Then
+        TracePrint "订单号无效"
+        status id, "无效订单", 2, "订单号无效"
+        RestartScript
+    ElseIf order_status = "2" Then
+        status id, "重复订单", 2, "订单号无效"
+        TracePrint "重复订单"
+        RestartScript
+    ElseIf order_status = "1" Then
+        If UBound(rets) < 3 Then
+            TracePrint "订单数据字段不足：" & uget
+            status id, "无效订单", 2, "订单数据字段不足"
+            RestartScript
+        End If
+        If IsNumeric(rets[3]) = false Then
+            TracePrint "订单价格字段异常：" & uget
+            status id, "无效订单", 2, "订单价格字段异常"
+            RestartScript
+        End If
+        order_type = rets[2]
+        TracePrint order_type
+        Delay 200
+        xps = CDbl(rets[3])
+        TracePrint xps
+    Else
+        TracePrint "未知订单状态：" & order_status
+        status id, "无效订单", 2, "未知订单状态：" & order_status
+        RestartScript
+    End If
+'''
+          replace_between(order_start, order_end, order_new, 'order 接口返回校验')
+
+          # 7. 订单回传：避免空/畸形响应直接访问 rets[2]，并给 statusx 默认值。
+          ord_result_new = '''Function ord_result(idtype,details)
+    If details = "拦截" or details = "开始" or details = "码失效" Then 
+        If idtype = "手动充值" Then 
+            Exit Function
+        End If
+    End If
+    
+    statusx = 1
+    If details = "充值成功" or details = "充值一半" or details = "拦截" or details = "开始" Then
+        statusx = 2
+    End If
+    
+    //-- 构造POST参数（键值对格式）
+    dim postData = "xp=" & xps & "&type=" & order_type & "&orderID=" & oidd & "&orderIDtype=" & oid & "&result="&details&"&status="&statusx&"&llp=" & lp & "&czp=" & czp & "&dev=" & code & "&phone=" & 手机号 & "&email=" & email & "&processed=1"
+
+    //-- 发送POST请求到更新接口
+    uget = URL.Post("http://127.0.0.1:5000/update_order_data", postData, 60)
+
+    //-- 解析返回结果
+    TracePrint "接口返回：" & uget
+    If uget = "" Then
+        TracePrint "订单更新接口无返回"
+        Exit Function
+    End If
+    
+    rets = Split(uget, "=")
+    If UBound(rets) < 2 Then
+        TracePrint "订单更新返回格式异常：" & uget
+        Exit Function
+    End If
+    
+    If rets[2] = "1" Then
+        TracePrint "数据更新成功"
+    ElseIf rets[2] = "2" Then
+        TracePrint "未找到该orderID"
+    Else
+        TracePrint "更新失败，错误码：" & rets[2]
+    End If
+End Function
+'''
+          replace_function('Function ord_result(idtype,details)', ord_result_new, '订单回传校验')
+
+          # 8. 运行时长：秒数跨分钟时必须向分钟借位。
+          runtime_new = '''Function 运行时长
+    Dim timea,timeb
+    timeend_m = DateTime.Minute()
+    timeend_s = DateTime.Second()
+    timea = timeend_m - timestart_m
+    timeb = timeend_s - timestart_s
+    
+    ' 秒数为负时需要向分钟借 1，否则跨分钟会多算 1 分钟
+    If timeb < 0 Then
+        timeb = timeb + 60
+        timea = timea - 1
+    End If
+    If timea < 0 Then
+        timea = timea + 60
+    End If
+    
+    timelong = timea & "分" & timeb & "秒"
+    TracePrint timelong
+End Function
+'''
+          replace_function('Function 运行时长', runtime_new, '运行时长跨分钟借位')
+
+          # 9. OCR：同一区域只识别一次，避免重复 OCR 的性能浪费和结果抖动。
+          ocr_new = '''Function 识别数字(x,y,x1,y1,xtext)
+    Dim ocrText
+    ocrText = Image.OcrText(x,y,x1,y1, 0, 0)
+    
+    If IsNumeric(ocrText) = true Then
+        xname = CDbl(Abs(ocrText))
+        TracePrint xtext & xname
+    Else
+        ocrText = SmartOcr(x,y,x1,y1)
+        TracePrint ocrText
+        If IsNumeric(ocrText) = true Then
+            xname = CDbl(Abs(ocrText))
+            TracePrint xtext & xname
+        Else
+            识别 = False
+            TracePrint "识别出错"
+        End If
+    End If
+End Function
+'''
+          replace_function('Function 识别数字(x,y,x1,y1,xtext)', ocr_new, 'OCR 去重复调用')
+
+          # 10. 截图：支付完成目录缺少斜杠；“失败”条件在前一分支已命中，后面的同条件是死代码。
+          replace_once('&"特殊界面"& "/支付完成" ', '&"特殊界面"& "/支付完成/" ', '支付完成截图目录')
+          replace_once('ElseIf i = "差一个月" or i="失败" Then', 'ElseIf i = "差一个月" Then', '截图重复失败条件')
+
+          # 11. 滑块：原失败分支 Goto 到 For 之前，会把 try 重置为 1，实际可能无限重试。
+          slider_match = re.search(r'(?ms)^Function 滑块验证\n.*?^End Function\n', text)
+          if not slider_match:
+              raise RuntimeError('滑块验证函数未找到')
+          slider = slider_match.group(0)
+          slider = slider.replace('    for try=1 to 6', '    for try=1 to 5', 1)
+          old_coord = '''        ' 仍失败：报警
+        If uget = "" Then
+            email = "【卡住了，三天券需验证,需手动】"
+            status id, "滑块验证", 2, email
+            
+        End If
+        
+        ' ? 获取成功：解析坐标
+        a = Split(uget, ",")
+        dim x0 = a[1]
+        x1 = 145
+        x2 = a[3]
+        y1 = 676
+        y2 = 676
+'''
+          new_coord = '''        ' 仍失败：本轮结束，进入下一次识别，不能继续 Split 空字符串
+        If uget = "" Then
+            email = "【卡住了，三天券需验证,需手动】"
+            status id, "滑块验证", 2, email
+            TracePrint "坐标接口无返回，本轮重新识别"
+            Tap 174, 740
+            Delay 1000
+            Goto 下一次识别
+        End If
+        
+        ' 获取成功：先校验字段数量再解析坐标
+        a = Split(uget, ",")
+        If UBound(a) < 3 Then
+            TracePrint "坐标接口返回格式异常：" & uget
+            Tap 174, 740
+            Delay 1000
+            Goto 下一次识别
+        End If
+        dim x0 = a[1]
+        x1 = 145
+        x2 = a[3]
+        y1 = 676
+        y2 = 676
+'''
+          if slider.count(old_coord) != 1:
+              raise RuntimeError('滑块坐标解析块匹配失败')
+          slider = slider.replace(old_coord, new_coord, 1)
+          prefix, suffix = slider.split('        Dim tablejson=', 1)
+          if prefix.count('goto 重新识别') != 3:
+              raise RuntimeError(f'滑块失败 Goto 数量异常：{prefix.count("goto 重新识别")}')
+          prefix = prefix.replace('goto 重新识别', 'goto 下一次识别')
+          slider = prefix + '        Dim tablejson=' + suffix
+          next_marker = '        tap 174,740 :Delay 1000\n    next\n    \n    rem 邮件通知'
+          next_new = '        tap 174,740 :Delay 1000\n    rem 下一次识别\n    next\n    \n    rem 邮件通知'
+          if slider.count(next_marker) != 1:
+              raise RuntimeError('滑块下一次识别标签插入点匹配失败')
+          slider = slider.replace(next_marker, next_new, 1)
+          text = text[:slider_match.start()] + slider + text[slider_match.end():]
+          print('OK: 滑块重试计数和坐标返回校验')
+
+          # 静态完整性检查（不能替代真机按键精灵编译/运行测试）。
+          fn = len(re.findall(r'(?m)^Function\b', text))
+          end_fn = len(re.findall(r'(?m)^End Function\b', text))
+          sub = len(re.findall(r'(?m)^Sub\b', text))
+          end_sub = len(re.findall(r'(?m)^End Sub\b', text))
+          if fn != end_fn or sub != end_sub:
+              raise RuntimeError(f'结构计数异常 Function={fn}/{end_fn}, Sub={sub}/{end_sub}')
+          if 'ElseIf 支付对象 = "app"' in text:
+              raise RuntimeError('重复 app 支付分支仍存在')
+          if 'order_ID="手动订单"' in text:
+              raise RuntimeError('错误的 order_ID 手动订单赋值仍存在')
+          if 'Sub BackN(n, intervalMs)' not in text:
+              raise RuntimeError('BackN helper 不存在')
+
+          # 尽量保持原文件换行风格和 BOM。
+          out = text if newline == '\n' else text.replace('\n', '\r\n')
+          SOURCE.write_bytes(bom + out.encode('utf-8'))
+
+          # 防止以后重新上传旧 MQB 时，把人工优化后的主 .mq 静默覆盖掉。
+          wf = EXTRACT_WF.read_text(encoding='utf-8')
+          if 'MQB_SOURCE_SNAPSHOT' not in wf:
+              wf = wf.replace(
+                  "          MANIFEST = ROOT / '充值2026_附件清单.md'\n",
+                  "          MANIFEST = ROOT / '充值2026_附件清单.md'\n          SOURCE = ROOT / '充值2026(db666069-c1bb-4a3a-b006-f19a0373a7f0).mq'\n          MQB_SOURCE_SNAPSHOT = ROOT / '充值2026_来自MQB.mq'\n",
+                  1,
+              )
+              wf = wf.replace(
+                  "          # 1) 外层 MQB -> .mq/.prop/.uip/.uis/.atc\n          extract_weird_zip(MQB, ROOT)\n",
+                  "          # 1) 外层 MQB -> .mq/.prop/.uip/.uis/.atc\n          # 主 .mq 可能已经在 GitHub 中人工优化；MQB 更新时先保留当前源码。\n          existing_source = SOURCE.read_bytes() if SOURCE.exists() else None\n          extract_weird_zip(MQB, ROOT)\n          if existing_source is not None and SOURCE.exists():\n              extracted_source = SOURCE.read_bytes()\n              if extracted_source != existing_source:\n                  MQB_SOURCE_SNAPSHOT.write_bytes(extracted_source)\n                  SOURCE.write_bytes(existing_source)\n                  print('Main .mq has local edits: preserved it and saved MQB source as', MQB_SOURCE_SNAPSHOT)\n",
+                  1,
+              )
+              EXTRACT_WF.write_text(wf, encoding='utf-8')
+              print('OK: MQB 自动拆包不再静默覆盖人工维护的主源码')
+
+          DOC.write_text('''# 充值2026 主脚本优化记录\n\n更新时间：2026-07-28\n\n本轮以“低风险、可明确证明”为原则，仅调整基础控制流、接口返回校验、重复调用和确定性 Bug；没有改动价格策略、优惠券业务规则、设备支付输入逻辑或活动选择规则。\n\n## 已修复\n\n1. **任务数据越界风险**：`getTelData` 返回非空但字段不足时，原代码仍会访问 `a[1]..a[13]`。现在只有 `UBound(a) >= 13` 才接受任务。\n2. **`c_status` 不刷新**：原函数把 JSON 转成 Table 后，写回全局 `c_status` 的代码被注释，导致拦截判断可能一直使用旧值。现在兼容 `c_status/status` 键及常见数值键/值形式。\n3. **手动订单变量写错**：一个 12.9 规格分支错误修改形参 `order_ID`，现统一修改全局 `oid`。\n4. **订单查询健壮性**：删除重复 `Split`，并在访问 `rets[1]/rets[2]/rets[3]` 前校验空响应、字段数量和价格数字类型。\n5. **订单回传越界风险**：`update_order_data` 空响应或格式异常时不再直接访问 `rets[2]`。\n6. **支付死分支**：删除第二个完全相同、永远不可达的 `ElseIf 支付对象 = "app"`；复用现有 `BackN`。\n7. **运行时长跨分钟计算错误**：秒数为负时增加向分钟借位。\n8. **OCR 重复调用**：同一区域的 `Image.OcrText` 和 `SmartOcr` 各最多执行一次，避免性能浪费和同一次判断中结果抖动。\n9. **截图路径错误**：支付完成目录补上 `/`，避免文件名被拼成 `支付完成时间戳.png` 而不是写入 `支付完成/` 目录。\n10. **截图死条件**：后面的 `i="失败"` 已被前一分支捕获，删除不可达重复条件。\n11. **滑块重试失效**：失败分支原来 `Goto 重新识别` 会跳回 `For try=...` 之前，把计数重新置 1，可能形成无限重试；现在失败进入 `下一次识别`，同时对空响应和坐标字段数做校验。\n12. **重复规格判断**：`hh1/hh3/hh12`、`cj1/cj3/cj12` 合并为前缀映射，减少重复分支。\n\n## 本轮暂不自动修改的高风险点\n\n- `支付密码()` 等流程仍有部分无限等待循环。它们确实有“界面变化后永久卡住”的风险，但超时后的业务处置（重试、判失败、查订单还是人工接管）需要真机规则才能安全确定。\n- Web/App 登录和活动页面存在大量重复找图循环，可继续逐步抽成 `WaitPic/TryTapPic` 等已有 helper，但应按业务模块逐段真机回归，不建议一次性重写。\n- 脚本中存在硬编码的通知/支付敏感信息。建议后续迁移到本机配置或后端，并轮换已经进入版本历史的凭据。本文档不记录具体敏感值。\n- `运行时长` 仍沿用“分钟+秒”的旧模型，适合单任务小于 60 分钟；若任务可能超过一小时，建议下一轮改为 `TickCount` 或完整时间差。\n\n## 开发文档依据\n\n按键精灵手机助手官方开发文档：https://help.anjian.com/?lt\n\n本轮使用或核对的官方能力包括：`RestartScript`、`Split`、`Left`、`CInt/CDbl/CStr`、`IsNull/IsNumeric`、`Url.Get/Url.Post`、`Encode.JsonToTable`、`Image.OcrText`、`SnapShot`、`Dir.Create/Dir.Exist`、`ReadUIConfig` 等。\n''', encoding='utf-8')
+          print(f'Structure OK: Function {fn}/{end_fn}, Sub {sub}/{end_sub}')
+          PY
+
+      - name: Commit optimized source
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          rm -f .github/workflows/optimize-chongzhi2026.yml
+          git add anjianjingling/ .github/workflows/
+          git diff --cached --stat
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo 'No changes.'
+            exit 0
+          fi
+          git commit -m 'Optimize 充值2026 main script and fix bugs'
+          git push
