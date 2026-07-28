@@ -93,18 +93,18 @@ Do
         TracePrint uget
         
         If uget = "" Then
-            TracePrint "kong"
+            TracePrint "任务接口暂无数据"
             Delay 2680
         Else
             a = Split(uget, ",")
-            TracePrint "yes"
-            
-            ' 你原来的 run 逻辑基本没意义（i=1 和 i=2 都 run）
-            ' 我给你改成：拿到数据就 run 一次
-            Exit Do
+            If UBound(a) >= 13 Then
+                TracePrint "任务数据有效"
+                Exit Do
+            Else
+                TracePrint "任务数据字段不足，忽略本次返回：" & uget
+                Delay 1000
+            End If
         End If
-        
-        ShowMessage "正常", 500, 300, 0
     Next
     
     Delay 500
@@ -133,20 +133,15 @@ order(oid)
 会员规格=order_type
 TracePrint 会员规格
 ord_result(oid,"开始")
-If 会员规格 = "hh1" Then 
-    pxtype= "h"&xps  	
-ElseIf 会员规格 = "hh3" Then 
-    pxtype= "h"&xps  
-ElseIf 会员规格 = "hh12" Then 
-    pxtype= "h"&xps  
-ElseIf 会员规格 = "cj1" Then 
-    pxtype= "c"&xps  
-ElseIf 会员规格 = "cj3" Then 
-    pxtype= "c"&xps  
-ElseIf 会员规格 = "cj12" Then 
+If Left(会员规格, 2) = "hh" Then
+    pxtype = "h" & xps
+ElseIf Left(会员规格, 2) = "cj" Then
     pxtype = "c" & xps
-ElseIf 会员规格 = "ct1" Then 
-    pxtype= "t"&xps
+ElseIf Left(会员规格, 2) = "ct" Then
+    pxtype = "t" & xps
+Else
+    pxtype = ""
+    TracePrint "未知会员规格：" & 会员规格
 End If
 TracePrint pxtype
 email="[开始web登录]<br>"&手机号&","&验证码&","&pxtype&","&多账户&","&code
@@ -10820,32 +10815,17 @@ Function 支付密码()
         End If
         Delay 200
     Next
-    If 支付对象 = "app" Then 
+    If 支付对象 = "app" Then
         TracePrint "返回2次"
-        KeyPress "back"
-        Delay 200
-        KeyPress "back"
-        Delay 200
-    ElseIf 支付对象 = "app" Then 
-        TracePrint "返回2次"
-        KeyPress "back"
-        Delay 200
-        KeyPress "back"
-        Delay 200
-    ElseIf 支付对象 = "web" Then 
+        BackN 2, 200
+    ElseIf 支付对象 = "web" Then
         RunApp kg
         TracePrint "返回2次"
-        KeyPress "back"
-        Delay 200
-        KeyPress "back"
-        Delay 200
+        BackN 2, 200
     End If
-    If 赠送券 = true Then 
+    If 赠送券 = true Then
         TracePrint "返回2次"
-        KeyPress "back"
-        Delay 200
-        KeyPress "back"
-        Delay 200
+        BackN 2, 200
     End If
     run (code)
 End Function
@@ -11521,7 +11501,7 @@ Function 截图(i)'变量i是命名的后缀，0代表充值前，1代表充值后
         jietu = timepath&g& "." & "png"
     ElseIf i = "特殊界面" Then
     	If 支付界面 = true Then 
-        timepath= "/" & "sdcard" & "/" & "pictures" & "/"&"记录"& "/" &"特殊界面"& "/支付完成" 
+        timepath= "/" & "sdcard" & "/" & "pictures" & "/"&"记录"& "/" &"特殊界面"& "/支付完成/" 
         Else 
         timepath= "/" & "sdcard" & "/" & "pictures" & "/"&"记录"& "/" &"特殊界面"& "/" 
 		end if
@@ -11532,7 +11512,7 @@ Function 截图(i)'变量i是命名的后缀，0代表充值前，1代表充值后
           
         End If 
         jietu = timepath & g & "." & "png"
-    ElseIf i = "差一个月" or i="失败" Then
+    ElseIf i = "差一个月" Then
     
         timepath= "/" & "sdcard" & "/" & "pictures" & "/"&"Screenshots"&"/" 
         If Dir.Exist(timepath) = 2 Then 
@@ -12534,31 +12514,39 @@ Function 点击()
     xdpub.元素点击(临时,500)
 End Function
 Function 运行时长
-    dim timea,timeb
+    Dim timea,timeb
     timeend_m = DateTime.Minute()
     timeend_s = DateTime.Second()
     timea = timeend_m - timestart_m
     timeb = timeend_s - timestart_s
-    If timea < 0 Then 
-        timea=timea+60
+    
+    ' 秒数为负时需要向分钟借 1，否则跨分钟会多算 1 分钟
+    If timeb < 0 Then
+        timeb = timeb + 60
+        timea = timea - 1
     End If
-    If timeb < 0 Then 
-        timeb=timeb+60
+    If timea < 0 Then
+        timea = timea + 60
     End If
-    timelong = timea& "分" & timeb& "秒"
+    
+    timelong = timea & "分" & timeb & "秒"
     TracePrint timelong
 End Function
 Function 识别数字(x,y,x1,y1,xtext)
-    If IsNumeric(Image.OcrText(x,y,x1,y1, 0, 0)) = true Then 
-        xname = CDbl(Abs(Image.OcrText(x,y,x1,y1, 0, 0)))	
-        TracePrint xtext&xname
+    Dim ocrText
+    ocrText = Image.OcrText(x,y,x1,y1, 0, 0)
+    
+    If IsNumeric(ocrText) = true Then
+        xname = CDbl(Abs(ocrText))
+        TracePrint xtext & xname
     Else
-        TracePrint smartocr(x,y,x1,y1)
-        If IsNumeric(SmartOcr(x,y,x1,y1)) = true Then 
-            xname = CDbl(Abs(SmartOcr(x,y,x1,y1)))	
-            TracePrint xtext&xname
-        Else 
-            识别=False 
+        ocrText = SmartOcr(x,y,x1,y1)
+        TracePrint ocrText
+        If IsNumeric(ocrText) = true Then
+            xname = CDbl(Abs(ocrText))
+            TracePrint xtext & xname
+        Else
+            识别 = False
             TracePrint "识别出错"
         End If
     End If
@@ -13803,19 +13791,36 @@ Function status(id,r_status,c_status,details)
     TracePrint 返回值
 End Function
 Function cstatus(ids)
-    dim post数据,返回值
+    Dim post数据,返回值,k,v,新状态
     post数据 = ids
-    TracePrint "更新返回值"
-    返回值 = Url.Post("http://127.0.0.1:5000/c_status", Post数据)
-    TracePrint shanhai.Type(返回值)
+    TracePrint "刷新c_status"
+    返回值 = Url.Post("http://127.0.0.1:5000/c_status", post数据)
     TracePrint 返回值
-    返回值=Encode.JsonToTable(返回值)
-    TracePrint shanhai.Type(返回值)
-    //For each k v in 返回值
-    	//TracePrint k
-    	//c_status = k
-	//Next 
-
+    
+    If 返回值 = "" Then
+        TracePrint "c_status接口无返回，保留原状态：" & c_status
+        Exit Function
+    End If
+    
+    返回值 = Encode.JsonToTable(返回值)
+    新状态 = ""
+    For Each k , v In 返回值
+        If CStr(k) = "c_status" or CStr(k) = "status" Then
+            新状态 = v
+            Exit For
+        ElseIf IsNumeric(v) Then
+            新状态 = v
+        ElseIf IsNumeric(k) Then
+            新状态 = k
+        End If
+    Next
+    
+    If IsNumeric(新状态) Then
+        c_status = CInt(新状态)
+        TracePrint "最新c_status=" & c_status
+    Else
+        TracePrint "无法解析c_status，保留原状态：" & c_status
+    End If
 End Function
 Function statusa(id,r_status,pxtypee,details)
     dim post数据,返回值
@@ -13892,7 +13897,7 @@ Function order(order_ID)
     ElseIf order_ID = "129888fa45805bc7c8" Then 
         order_type = "cj1"
         xps = 12.9
-        order_ID="手动订单"
+        oid="手动订单"
         Exit Function
     ElseIf order_ID = "149888fa45805bc7c8" Then 
         order_type = "cj1"
@@ -13958,31 +13963,52 @@ Function order(order_ID)
     
     // 在order_data_anj表中查询orderID字段的status的值
     uget = URL.Get("http://127.0.0.1:5000/orderid_find?orderid=" & oid , 60)
-    a = Split(uget, ",")
     TracePrint uget
+    
+    If uget = "" Then
+        TracePrint "订单接口无返回"
+        status id, "无效订单", 2, "订单接口无返回"
+        RestartScript
+    End If
+    
     rets = Split(uget, ",")
+    If UBound(rets) < 1 Then
+        TracePrint "订单接口返回格式异常：" & uget
+        status id, "无效订单", 2, "订单接口返回格式异常"
+        RestartScript
+    End If
+    
     order_status = rets[1]
     TracePrint order_status
     
-    If order_status = null Then 
-        TracePrint "订单号无效"
+    If order_status = "" or IsNull(order_status) Then
         TracePrint "订单号无效"
         status id, "无效订单", 2, "订单号无效"
-        RestartScript 
+        RestartScript
     ElseIf order_status = "2" Then
         status id, "重复订单", 2, "订单号无效"
         TracePrint "重复订单"
         RestartScript
-    End If
-    Delay 200
-    TracePrint "b"
-    If order_status = "1" Then 
+    ElseIf order_status = "1" Then
+        If UBound(rets) < 3 Then
+            TracePrint "订单数据字段不足：" & uget
+            status id, "无效订单", 2, "订单数据字段不足"
+            RestartScript
+        End If
+        If IsNumeric(rets[3]) = false Then
+            TracePrint "订单价格字段异常：" & uget
+            status id, "无效订单", 2, "订单价格字段异常"
+            RestartScript
+        End If
         order_type = rets[2]
         TracePrint order_type
         Delay 200
-        xps = rets[3]
-        xps = CDbl(xps)
+        xps = CDbl(rets[3])
         TracePrint xps
+    Else
+        TracePrint "未知订单状态：" & order_status
+        status id, "无效订单", 2, "未知订单状态：" & order_status
+        RestartScript
     End If
 End Function
 
@@ -14004,32 +14030,34 @@ Function ord_result(idtype,details)
             Exit Function
         End If
     End If
-    If details = "充值成功" or details = "充值一半" Then 
-        statusx=2
-    ElseIf details = "拦截" Then 
-        statusx=2
-    ElseIf details = "开始" Then 
-        statusx=2
-    ElseIf details = "码失效" Then 
-        statusx=1
+    
+    statusx = 1
+    If details = "充值成功" or details = "充值一半" or details = "拦截" or details = "开始" Then
+        statusx = 2
     End If
-    //-- 构造POST参数（键值对格式）
+    
     dim postData = "xp=" & xps & "&type=" & order_type & "&orderID=" & oidd & "&orderIDtype=" & oid & "&result="&details&"&status="&statusx&"&llp=" & lp & "&czp=" & czp & "&dev=" & code & "&phone=" & 手机号 & "&email=" & email & "&processed=1"
-
-    //-- 发送POST请求到更新接口
     uget = URL.Post("http://127.0.0.1:5000/update_order_data", postData, 60)
-
-    //-- 解析返回结果
-    TracePrint "接口返回：" & uget  
+    TracePrint "接口返回：" & uget
+    
+    If uget = "" Then
+        TracePrint "订单更新接口无返回"
+        Exit Function
+    End If
+    
     rets = Split(uget, "=")
-    if rets[2] = "1" then
+    If UBound(rets) < 2 Then
+        TracePrint "订单更新返回格式异常：" & uget
+        Exit Function
+    End If
+    
+    If rets[2] = "1" Then
         TracePrint "数据更新成功"
-    elseif rets[2] = "2" then
+    ElseIf rets[2] = "2" Then
         TracePrint "未找到该orderID"
-    else
+    Else
         TracePrint "更新失败，错误码：" & rets[2]
-    end if
-
+    End If
 End Function
 
 
@@ -14045,7 +14073,7 @@ End Function
 Function 滑块验证
     Dim try
     rem 重新识别
-    for try=1 to 6
+    for try=1 to 5
         ' 生成时间戳（去掉 - : 空格）
         g = Replace(Replace(Replace(GetNetworkTime(), "-", ""), ":", ""), " ", "")
         TracePrint g
@@ -14069,39 +14097,48 @@ Function 滑块验证
             Delay 500
         Next
 		
-        ' 仍失败：报警
+        ' 仍失败：本轮结束，进入下一次识别，不能继续 Split 空字符串
         If uget = "" Then
             email = "【卡住了，三天券需验证,需手动】"
             status id, "滑块验证", 2, email
-            
+            TracePrint "坐标接口无返回，本轮重新识别"
+            Tap 174, 740
+            Delay 1000
+            Goto 下一次识别
         End If
-		
-        ' ? 获取成功：解析坐标
+        
+        ' 获取成功：先校验字段数量再解析坐标
         a = Split(uget, ",")
+        If UBound(a) < 3 Then
+            TracePrint "坐标接口返回格式异常：" & uget
+            Tap 174, 740
+            Delay 1000
+            Goto 下一次识别
+        End If
         dim x0 = a[1]
         x1 = 145
         x2 = a[3]
         y1 = 676
         y2 = 676
-	
+
         If x0 = "0" Then 
             TracePrint "获取x2坐标失败"
             If try = 5 Then 发邮件 "坐标为0,重新"&code
-            tap 174,740 '刷新滑块
+            tap 174,740
             Delay 1000
-            goto 重新识别
+            goto 下一次识别
         elseif x0 = "targetxerr" Then 
             TracePrint "获取x2坐标不合理,重新"&code
             If try = 5 Then 发邮件 "坐标不合理"&code
-            tap 174,740 '刷新滑块
+            tap 174,740
             Delay 1000
-            goto 重新识别
+            goto 下一次识别
         elseIf x2 = "0" Then 
             TracePrint "获取x2坐标失败"
             If try = 5 Then 发邮件 "坐标为0,重新"&code
-            tap 174,740 '刷新滑块
+            tap 174,740
             Delay 1000
-            goto 重新识别
+            goto 下一次识别
         End If
         Dim tablejson="["&x1&","&y1&","&x2&","&y2&"]"
         dim path = timepath&g&"_"&code& "." & "txt"
@@ -14153,6 +14190,7 @@ Function 滑块验证
         TracePrint try
         If try = 5 Then Tap 174, 740 : Delay 1000 : Goto 邮件通知
         tap 174,740 :Delay 1000
+    rem 下一次识别
     next
     
     rem 邮件通知
