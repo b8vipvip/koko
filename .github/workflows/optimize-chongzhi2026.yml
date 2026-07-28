@@ -1,10 +1,9 @@
 name: Optimize 充值2026 source
 
 on:
-  workflow_dispatch:
-  push:
+  pull_request:
+    types: [opened, synchronize, reopened]
     paths:
-      - '.github/workflows/optimize-chongzhi2026.yml'
       - 'anjianjingling/.optimize-trigger'
 
 permissions:
@@ -12,17 +11,19 @@ permissions:
 
 jobs:
   optimize:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout PR branch
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.head_ref }}
           fetch-depth: 0
 
       - name: Apply conservative source fixes
         run: python anjianjingling/optimize_chongzhi2026_once.py
 
-      - name: Commit optimized source
+      - name: Commit optimized source to PR branch
         shell: bash
         run: |
           git config user.name 'github-actions[bot]'
@@ -37,5 +38,5 @@ jobs:
             echo 'No changes.'
             exit 0
           fi
-          git commit -m 'Optimize 充值2026 main script and fix bugs'
-          git push
+          git commit -m 'Optimize 充值2026 main script and fix bugs [skip ci]'
+          git push origin HEAD:${{ github.head_ref }}
