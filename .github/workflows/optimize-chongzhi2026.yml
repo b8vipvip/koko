@@ -20,6 +20,26 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
 
+      - name: Make optimizer preserve MQ source encoding
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('anjianjingling/optimize_chongzhi2026_once.py')
+          s = p.read_text(encoding='utf-8')
+          old = """raw = SOURCE.read_bytes()\nbom = b'\\xef\\xbb\\xbf' if raw.startswith(b'\\xef\\xbb\\xbf') else b''\nbody = raw[len(bom):].decode('utf-8')"""
+          new = """raw = SOURCE.read_bytes()\nbom = b'\\xef\\xbb\\xbf' if raw.startswith(b'\\xef\\xbb\\xbf') else b''\nif bom:\n    source_encoding = 'utf-8'\n    body = raw[len(bom):].decode('utf-8')\nelse:\n    try:\n        body = raw.decode('utf-8')\n        source_encoding = 'utf-8'\n    except UnicodeDecodeError:\n        body = raw.decode('gb18030')\n        source_encoding = 'gb18030'"""
+          if old not in s:
+              raise SystemExit('encoding read block not found')
+          s = s.replace(old, new, 1)
+          old_write = "SOURCE.write_bytes(bom + out.encode('utf-8'))"
+          new_write = "SOURCE.write_bytes(bom + out.encode(source_encoding))"
+          if old_write not in s:
+              raise SystemExit('encoding write block not found')
+          s = s.replace(old_write, new_write, 1)
+          p.write_text(s, encoding='utf-8')
+          PY
+
       - name: Apply conservative source fixes
         id: optimize
         shell: bash
