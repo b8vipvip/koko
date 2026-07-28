@@ -37,6 +37,8 @@ jobs:
           MQB = ROOT / '充值2026.mqb'
           ATTACH_DIR = ROOT / '充值2026_Attachment'
           MANIFEST = ROOT / '充值2026_附件清单.md'
+          SOURCE = ROOT / '充值2026(db666069-c1bb-4a3a-b006-f19a0373a7f0).mq'
+          MQB_SOURCE_SNAPSHOT = ROOT / '充值2026_来自MQB.mq'
 
           def clear_utf8_flags(data: bytes) -> bytes:
               """按 ZIP 中央目录精确定位条目，只清除错误的 UTF-8 文件名标志。"""
@@ -94,7 +96,21 @@ jobs:
               raise SystemExit(f'Cannot find {MQB}')
 
           # 1) 外层 MQB -> .mq/.prop/.uip/.uis/.atc
+          # 主 .mq 可能已经在 GitHub 中人工优化，因此拆包前先保留当前版本。
+          existing_source = SOURCE.read_bytes() if SOURCE.exists() else None
           extract_weird_zip(MQB, ROOT)
+
+          # 如果 MQB 内源码与 GitHub 中维护版不同：
+          # - GitHub 主源码继续保留人工维护版；
+          # - MQB 内源码另存，方便后续人工 diff/合并，不再静默覆盖优化结果。
+          if existing_source is not None and SOURCE.exists():
+              extracted_source = SOURCE.read_bytes()
+              if extracted_source != existing_source:
+                  MQB_SOURCE_SNAPSHOT.write_bytes(extracted_source)
+                  SOURCE.write_bytes(existing_source)
+                  print('Preserved maintained MQ source; saved MQB source as', MQB_SOURCE_SNAPSHOT)
+              elif MQB_SOURCE_SNAPSHOT.exists():
+                  MQB_SOURCE_SNAPSHOT.unlink()
 
           atc_files = list(ROOT.glob('充值2026(*).atc'))
           if len(atc_files) != 1:
