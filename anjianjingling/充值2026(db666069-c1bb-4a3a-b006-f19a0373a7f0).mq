@@ -1296,30 +1296,8 @@ Function 超级一个月(xp)
                 领3天券 
                 RunApp "com.android.systemui",".recents.RecentsActivity"
                 Delay 500 
-                Do
-                    For 20
-                        找图 0, 0, 0, 0,"弹起列表酷狗app"
-                        If x > 0 Then 
-                            tap x+20,y+10
-                            Delay 500
-                            支付密码 
-                            Exit Do
-                        End If
-                        Delay 200
-                        找图 0, 0, 0, 0,"弹起列表酷狗app2"
-                        If x > 0 Then 
-                            tap x+20,y+10
-                            Delay 500
-                            支付密码 
-                            Exit Do
-                        End If
-                        Delay 200
-                    Next
-                    RunApp "com.android.systemui",".recents.RecentsActivity"
-                    Delay 500
-                Loop
-                
-                超级升级充值(1) 
+                选择最近任务酷狗
+超级升级充值(1) 
                 续费跳支付宝(sjp)
                 支付密码
                 领取权益 
@@ -1597,56 +1575,14 @@ Function 超级一个月(xp)
                 If 三天券 = "失败" and 苹果续费状态<>"true" Then 
                     RunApp "com.android.systemui",".recents.RecentsActivity"
                     Delay 500 
-                    Do
-                        For 20
-                            找图 0,0,0,0,"弹起列表酷狗app"
-                            If x > 0 Then 
-                                tap x+20,y+10
-                                Delay 500
-                                支付密码 
-                                Exit Do
-                            End If
-                            Delay 200
-                            找图 0, 0, 0, 0,"弹起列表酷狗app2"
-                            If x > 0 Then 
-                                tap x+20,y+10
-                                Delay 500
-                                支付密码 
-                                Exit Do
-                            End If
-                            Delay 200    
-                        Next
-                        RunApp "com.android.systemui",".recents.RecentsActivity"
-                        Delay 500
-                    Loop
-                    czp=9
+                选择最近任务酷狗
+czp=9
                     goto 重新查超级价格
                 ElseIf 三天券 = "失败" and 9+5<=xp Then
                     RunApp "com.android.systemui",".recents.RecentsActivity"
                     Delay 500 
-                    Do
-                        For 20
-                            找图 0,0,0,0,"弹起列表酷狗app"
-                            If x > 0 Then 
-                                tap x+20,y+10
-                                Delay 500
-                                支付密码 
-                                Exit Do
-                            End If
-                            Delay 200
-                            找图 0, 0, 0, 0,"弹起列表酷狗app2"
-                            If x > 0 Then 
-                                tap x+20,y+10
-                                Delay 500
-                                支付密码 
-                                Exit Do
-                            End If
-                            Delay 200
-                        Next
-                        RunApp "com.android.systemui",".recents.RecentsActivity"
-                        Delay 500
-                    Loop  
-                    czp=9
+                选择最近任务酷狗
+czp=9
                     goto 重新查超级价格
                 ElseIf 三天券 = "失败" Then
                     充值失败 = true
@@ -1656,29 +1592,8 @@ Function 超级一个月(xp)
                 End If
                 RunApp "com.android.systemui",".recents.RecentsActivity"
                 Delay 500 
-                Do
-                    For 20
-                        找图 0,0,0,0,"弹起列表酷狗app"
-                        If x > 0 Then 
-                            tap x+20,y+10
-                            Delay 500
-                            支付密码 
-                            Exit Do
-                        End If
-                        Delay 200
-                        找图 0, 0, 0, 0,"弹起列表酷狗app2"
-                        If x > 0 Then 
-                            tap x+20,y+10
-                            Delay 500
-                            支付密码 
-                            Exit Do
-                        End If
-                        Delay 200
-                    Next
-                    RunApp "com.android.systemui",".recents.RecentsActivity"
-                    Delay 500
-                Loop
-                超级升级(1) 
+                选择最近任务酷狗
+超级升级(1) 
                 续费跳支付宝(2)
                 支付密码
                 领取权益 
@@ -2239,29 +2154,8 @@ Function 超级三个月(xp)
         End If
         RunApp "com.android.systemui",".recents.RecentsActivity"
         Delay 500 
-        Do
-            For 20
-                找图 0, 0, 0, 0,"弹起列表酷狗app"
-                If x > 0 Then 
-                    tap x+20,y+10
-                    Delay 500
-                    支付密码 
-                    Exit Do
-                End If
-                Delay 200
-                找图 0, 0, 0, 0,"弹起列表酷狗app2"
-                If x > 0 Then 
-                    tap x+20,y+10
-                    Delay 500
-                    支付密码 
-                    Exit Do
-                End If
-                Delay 200
-            Next
-            RunApp "com.android.systemui",".recents.RecentsActivity"
-            Delay 500
-        Loop
-        续费跳支付宝(wp1) 
+                选择最近任务酷狗
+续费跳支付宝(wp1) 
         支付密码
         超级升级(3) 
         续费跳支付宝(12)
@@ -2283,29 +2177,8 @@ Function 超级三个月(xp)
         End If
         RunApp "com.android.systemui",".recents.RecentsActivity"
         Delay 500 
-        Do
-            For 20
-                找图 0, 0, 0, 0,"弹起列表酷狗app"
-                If x > 0 Then 
-                    tap x+20,y+10
-                    Delay 500
-                    支付密码 
-                    Exit Do
-                End If
-                Delay 200
-                找图 0, 0, 0, 0,"弹起列表酷狗app2"
-                If x > 0 Then 
-                    tap x+20,y+10
-                    Delay 500
-                    支付密码 
-                    Exit Do
-                End If
-                Delay 200
-            Next
-            RunApp "com.android.systemui",".recents.RecentsActivity"
-            Delay 500
-        Loop
-        续费跳支付宝(ap1) 
+                选择最近任务酷狗
+续费跳支付宝(ap1) 
         支付密码
         超级升级(3) 
         续费跳支付宝(12)
@@ -4717,129 +4590,56 @@ Function app充值(guige, mfsj)'mfsj=true则升级超级会员
     run (code)
 End Function
 Function 到豪华价格界面
-    If jyq = "有券" or jyq = "无券" Then 
+    Dim pageTry
+    If jyq = "有券" or jyq = "无券" Then
         KeyPress "back"
+        Delay 700
+        Tap 419,1223
         Delay 1000
-        Tap 419, 1223
-        Delay 1500
-        Do
-            For 15
-                找图 305, 1116, 710, 1235, "超级确认协议"
-                If x > 0 Then 
-                    TracePrint "进入超级会员价格界面了"
-                    '点豪华VIP
-                    tap 115,293
-                    Delay 1000
-                    Exit Do
-                End If
-                Call 找图(0, 0, 0, 0, "确认协议")
-                If x > 0 Then 
-                    TracePrint "进入价格界面了"
-                    Exit Function
-                End If
-                Call 找图(0,0,0,0, "豪华协议优惠小字")
-                If x > 0 Then  
-                    TracePrint "进入会员价格"
-              
-                    Exit Function
-                End If
-                Delay 500
-                找图 107,507,287,617, "超级50加"
-                If x > 0 Then 
-                    TracePrint "进入超级会员价格界面了"
-                    Tap 572, 422
-                    Delay 1500
-                End If
-                Delay 200
-            Next
-            KillApp kg
-            Delay 1000
-            到价格界面 
-        Loop
+        For pageTry = 1 To 3
+            If 等待任一图片(0,0,0,0,"确认协议|豪华协议优惠小字|超级确认协议",15,250,"豪华价格-券后入口") = 1 Then
+                If 等待命中图 = "确认协议" or 等待命中图 = "豪华协议优惠小字" Then Exit Function
+                Tap 115,293
+                Delay 700
+                If 等待任一图片(0,0,0,0,"确认协议|豪华协议优惠小字",10,200,"豪华价格-切换豪华") = 1 Then Exit Function
+            End If
+            等待状态回传 "豪华价格-券后入口", "第" & pageTry & "次重新导航价格页"
+            到价格界面
+        Next
+        等待致命失败 "豪华价格-券后入口", "确认协议|豪华协议优惠小字"
     End If
 
-    Do
-       
-        '点豪华VIP
-        tap 115,293
-        Delay 1000
-        For 10
-            Call 找图(0, 0, 0, 0, "确认协议")
-            If x > 0 Then 
-                TracePrint "进入价格界面了"
-                Exit do
-            End If
-            Call 找图(0,0,0,0, "豪华协议优惠小字")
-            If x > 0 Then  
-                TracePrint "进入会员价格"
-              
-                Exit do
-            End If
-            Delay 100
-        Next
-        Delay 100
-        TracePrint "没找到价格界面"
-        到价格界面 
-        
-    Loop
-    run (code)
+    For pageTry = 1 To 3
+        Tap 115,293
+        Delay 700
+        If 等待任一图片(0,0,0,0,"确认协议|豪华协议优惠小字",12,200,"豪华价格-确认页") = 1 Then Exit Function
+        等待状态回传 "豪华价格-确认页", "第" & pageTry & "次重新进入价格页"
+        到价格界面
+    Next
+    等待致命失败 "豪华价格-确认页", "确认协议|豪华协议优惠小字"
 End Function
 Function 同步书签
-    If tbsq = "1" Then 
-        TracePrint "去同步书签一次"
-        rem 重新打开夸克
-        RunApp "com.quark.browser"
+    Dim flowTry
+    If tbsq <> "1" Then Exit Function
+
+    TracePrint "去同步书签一次"
+    For flowTry = 1 To 3
+        RunApp qk
         Delay 1000
-        Do
-            For 5
-                Call 找图(21,435,698,678, "qk主界面")
-                If x > 0 Then 
-                    TracePrint "进入夸克主页"
-                    Exit Do
-                End If
-                Delay 100
-            Next
-            Delay 100
-            RunApp "com.quark.browser"
-            Delay 1000
-            TracePrint "点击主页"
-            For 5
-                Call 找图(194,1101,719,1271, "夸克主页")
-                If x > 0 Then 
-                    TracePrint "进入夸克主页"
-                    tap x,y
-                    Exit for
-                End If
-            Next
-            Delay 300
-            KeyPress "back"
-        Loop
-        Tap 97,700
-        TracePrint "点击书签"
-        Delay 1000
-        Rem 找赠送券
-        Do
-            For 10
-                Call 找图(207,70,356,149, "书签")
-                If x > 0 Then 
-                    TracePrint "进入书签"
-                    Delay 200
-                    Call 找图(15,1182,424,1276, "书签同步")
-                    If x > 0 Then 
-                        TracePrint "书签同步"  
-                        Tap x, y
-                        Delay 200
-                    End If
-                End If
-                Exit do
-                Delay 100
-            Next
-            Delay 100
-            Goto 重新打开夸克
-        Loop
-            
-    
-    End If
+        If 等待任一图片(0,0,0,0,"qk主界面|夸克主页",8,200,"同步书签-夸克主页") = 1 Then
+            If 等待命中图 = "夸克主页" Then Tap x,y : Delay 300
+            Tap 97,700
+            TracePrint "点击书签"
+            Delay 700
+            If 等待任一图片(207,70,356,149,"书签",10,200,"同步书签-书签页") = 1 Then
+                If TryTapPic(15,1182,424,1276,"书签同步",0,0,300,"点击书签同步") = 0 Then TracePrint "未发现书签同步按钮，可能已经同步"
+                Exit Function
+            End If
+        End If
+        等待状态回传 "同步书签", "第" & flowTry & "次导航失败，重启夸克后从主页重试"
+        执行等待恢复 "重启夸克"
+    Next
+    等待致命失败 "同步书签", "qk主界面|书签"
 End Function
 Function 续费跳支付宝(t)'"t"为页面价格，用于与支付金额c核对确认
 
@@ -5944,318 +5744,96 @@ Function web端价格(guige)
     run (code)
 End Function
 Function 到价格界面()
-    Rem 重新打开vip
-    RunApp kg
-    TracePrint "到价格界面"
-    Do
-        for 3
-            Call 找图(22,1164,220,1251, "我的会员")
-            If x > 0 Then 
-                TracePrint "点击我的会员"
-                Tap x, y
-                
-                Exit Do
-            End If
-            Delay 200
-            Call 找图(17,1161,116,1263, "礼物图标")
-            If x > 0 Then 
-                TracePrint "找到礼物图标"
-                If cxcj = 2 Then 
-                    //进入超级会员价格界面
-                    goto 进入超级价格
-    				
-                End If
-                Goto 找礼物
-                Exit do
-            End If
-           
-            Delay 500
-            会员活动广告
-        Next
+    Dim stepTry,ok
+    TracePrint "==== 到价格界面：状态机开始 ===="
+
+    ' 1. 必须进入会员中心并确认礼物图标
+    For stepTry = 1 To 3
+        RunApp kg
+        Delay 1200
+        ok = 等待任一图片(0,0,0,0,"我的会员|礼物图标",8,250,"价格界面-会员入口")
+        If ok = 1 Then
+            If 等待命中图 = "我的会员" Then Tap x,y : Delay 1000
+            If 等待命中图 = "礼物图标" Then Exit For
+            If 等待任一图片(17,1161,116,1263,"礼物图标",20,200,"价格界面-礼物图标") = 1 Then Exit For
+        End If
         tj = "二次"
         推荐页到个人信息
-        
-    loop
-    Delay 2500
-    Rem 找礼物
-    Do
-        For 25
-            '是否礼物图标
-            Call 找图(17,1161,116,1263, "礼物图标")
-            If x > 0 Then 
-                TracePrint "找到礼物图标"
-                Delay 500
-                Exit do
-            End If
-            Delay 200
-        Next
-        会员活动广告
-        关闭广告 
-        For 2
-            '是否礼物图标
-            Call 找图(17,1161,116,1263, "礼物图标")
-            If x > 0 Then 
-                TracePrint "找到礼物图标"
-                Delay 500
-                Exit do
-            End If
-            Delay 200
-        Next
-        goto 重新打开vip
-    Loop
-    //查是否有自动续费  
-
-    Delay 500
-    '点自动续费位置
-    Tap 233, 314
-    Delay 1000
-    For 5
-        '是否开通自动续费
-        找图 17, 780, 597, 1047, "app续费管理"
-        If x > 0 Then 
-            TracePrint "找到已开通自动续费"
-            Delay 200
-            
-            关闭续费(1)
-            Exit for
-        End If
-        找图 17, 780, 597, 1047, "app续费管理2"
-        If x > 0 Then 
-            TracePrint "找到已开通自动续费"
-            Delay 200
-            关闭续费(1)
-            Exit for
-        End If
-        Delay 100
-        找图 0,0,0,0, "弹出广告"
-        If x > 0 Then 
-            Tap x, y
-            Delay 1000
-        End If
+        等待状态回传 "价格界面-会员入口", "第" & stepTry & "次重新导航"
     Next
-    
-    Tap 299,95'点豪华vip
+    If stepTry > 3 Then 等待致命失败 "价格界面-会员入口", "我的会员|礼物图标"
 
-    Do
-        For 15
-            找图 63,381,317,513, "豪华会员界面"
-            If x > 0 Then 
-                TracePrint "找到豪华界面"
-            
-                Exit do 
-            End If
-            找图 185,36,448,203, "豪华界面"
-            If x > 0 Then 
-                TracePrint "找到豪华界面"
-            
-                Exit do 
-            End If
-            
-        Next
-        For 5
-            '是否开通自动续费
-            找图 17, 780, 597, 1047, "app续费管理"
-            If x > 0 Then 
-                TracePrint "找到已开通自动续费"
-                Delay 200
-            
-                关闭续费(1)
-                Exit for
-            End If
-            找图 17, 780, 597, 1047, "app续费管理2"
-            If x > 0 Then 
-                TracePrint "找到已开通自动续费"
-                Delay 200
-                关闭续费(1)
-                Exit for
-            End If
-            Delay 100
-        Next
+    ' 2. 自动续费管理是可选弹层；发现则处理
+    Tap 233,314
+    Delay 800
+    If 等待任一图片(17,780,597,1047,"app续费管理|app续费管理2",5,150,"价格界面-续费检查") = 1 Then 关闭续费 1
+
+    ' 3. 必须确认豪华会员页
+    Tap 299,95
+    Delay 700
+    For stepTry = 1 To 3
+        If 等待任一图片(0,0,0,0,"豪华会员界面|豪华界面",15,180,"价格界面-豪华页") = 1 Then Exit For
         会员活动广告
         关闭广告
-        Delay 200
-        Tap 299,95'点豪华vip
-    Loop
-    
-    Do
-        If 豪华状态 = "是会员" Then 
-            Exit Do
-        End If
-        For 25
-            '是否豪华会员
-            找图 55,205,487,497, "豪华是会员"
-            If x > 0 Then             
-                豪华状态 = "是会员"
-                TracePrint 豪华状态
-                Exit do
-            End If
-            Delay 200
-            找图 55,205,487,497, "豪华是会员2"
-            If x > 0 Then             
-                豪华状态 = "是会员"
-                TracePrint 豪华状态
-                Exit do
-            End If
-            
-            Delay 200
-            找图 55,205,487,497, "豪华已过期"        
-            If x > 0 Then             
-                豪华状态 = "未开通"
-                TracePrint 豪华状态
-                Exit Do
-            End If
-            Delay 200
-            找图 55,205,487,497, "豪华未开通"        
-            If x > 0 Then 
-                豪华状态 = "未开通"
-                TracePrint 豪华状态
-                Exit Do
-            End If
-            找图 55,205,487,497, "豪华未开通2"        
-            If x > 0 Then 
-                豪华状态 = "未开通"
-                TracePrint 豪华状态
-                Exit Do
-            End If
-            找图 55,205,487,497, "豪华是会员3"        
-            If x > 0 Then 
-                豪华状态 = "是会员"
-                TracePrint 豪华状态
-                //关闭续费(1)
-                Exit Do
-            End If
-            找图 55,205,487,497, "豪华是会员5"        
-            If x > 0 Then 
-                豪华状态 = "是会员"
-                TracePrint 豪华状态
-                Exit Do
-            End If
-            找图 55,205,487,497, "豪华是会员6"        
-            If x > 0 Then 
-                豪华状态 = "是会员"
-                TracePrint 豪华状态
-                Exit Do
-            End If
-            Delay 200
-        Next
-        
-        截图 "特殊界面"
-        TracePrint "没找到豪华状态,跳过"
-        //豪华状态 = "是会员"
-        Exit Do
-        Delay 200
-    Loop
-    Tap 140,92'点超级vip
-    TracePrint "点击超级vip"
-    Delay 1000
-    Do
-        For i=1 to 15
-            '是否在超级会员界面
-            找图 0,0,0,0,"超级50加"
-            If x>0 Then 
-                TracePrint "进入超级会员界面"
-                Exit do
-            End If
-            Delay 100
-        
-       
-            FindPic 0, 0, 0, 0, "Attachment:超级50加.png", "000000", 0, 0.9, x, y
-            If x>0 Then 
-                TracePrint "进入超级会员界面"
-                Exit do
-            End If
-            Delay 100
-      
-            找图 0,0,0,0,"超级界面超级VIP"
-            If x>0 Then 
-                TracePrint "进入超级会员界面"
-                Exit do
-            End If
-            找图 0,0,0,0,"豪华界面超级VIP"
-            If x>0 Then 
-                TracePrint "进入超级会员界面"
-                Tap x+20,y+20
-            End If
-            TracePrint "没在超级会员界面"
-            If i = 10 Then 
-        	会员活动广告
-       		End If
-        Next
-        goto 找礼物
-    loop
-    Do
-        If 超级状态 = "是会员" Then 
-            Exit Do
-        End If
-        For 5
-            '是否
-            找图 39, 181, 511, 357, "未开通超级vip"
-            If x > 0 Then             
-                超级状态 = "未开通"
-                TracePrint 超级状态
-                Exit do
-            End If
-            找图 39, 181, 511, 357, "超会是会员"        
-            If x > 0 Then             
-                超级状态 = "是会员"
-                TracePrint 超级状态
-                Exit Do
-            End If
-            找图 39, 181, 511, 357, "超会已过期"        
-            If x > 0 Then 
-                超级状态 = "已过期"
-                TracePrint 超级状态
-                Exit Do
-            End If
-        Next
+        Tap 299,95
+        Delay 500
+        等待状态回传 "价格界面-豪华页", "第" & stepTry & "次重新点击豪华VIP"
+    Next
+    If stepTry > 3 Then 等待致命失败 "价格界面-豪华页", "豪华会员界面|豪华界面"
+
+    ' 4. 豪华状态必须明确，不能再使用“没找到就跳过”
+    If 豪华状态 <> "是会员" Then
+        必须等待界面 55,205,487,497,"豪华是会员|豪华是会员2|豪华是会员3|豪华是会员5|豪华是会员6|豪华已过期|豪华未开通|豪华未开通2",25,180,2,"关闭广告","价格界面-豪华状态"
+        Select Case 等待命中图
+        Case "豪华是会员","豪华是会员2","豪华是会员3","豪华是会员5","豪华是会员6"
+            豪华状态 = "是会员"
+        Case Else
+            豪华状态 = "未开通"
+        End Select
+        TracePrint "豪华状态=" & 豪华状态
+    End If
+
+    ' 5. 必须确认超级会员页
+    Tap 140,92
+    Delay 700
+    For stepTry = 1 To 3
+        If 等待任一图片(0,0,0,0,"超级50加|超级界面超级VIP",15,180,"价格界面-超级页") = 1 Then Exit For
+        If 静默找图(0,0,0,0,"豪华界面超级VIP") = 1 Then Tap x+20,y+20 : Delay 500
         会员活动广告
-        Delay 200
-    Loop
-    //进入超级会员价格界面
-    rem 进入超级价格
-    Tap 572, 422
-    Delay 1500
-    Do
-        For i=1 to 10
-            找图 305, 1116, 710, 1235, "超级确认协议"
-            If x > 0 Then 
-                TracePrint "进入超级会员价格界面了"
-                Exit Do
-            End If
-       
-            Delay 500
-            找图 107,507,287,617, "超级50加"
-            If x > 0 Then 
-                TracePrint "进入超级会员价格界面了"
-                Tap 572, 422
-                Delay 2500
-             
-            End If
-            找图 0,0,0,0, "app进会员服务"
-            If x > 0 Then 
-                TracePrint "进入超级会员价格界面了"
-               
-                Delay 2500
-             
-            End If
-            Delay 300
-            找图 0,0,0,0, "app进会员价格加载中"
-            If x > 0 Then 
-                TracePrint "进入超级会员价格界面了"
-               
-                Delay 2500
-             
-            End If
-            Delay 300
-            If i = 8 Then 
-        	会员活动广告
+        等待状态回传 "价格界面-超级页", "第" & stepTry & "次重新点击超级VIP"
+        Tap 140,92
+    Next
+    If stepTry > 3 Then 等待致命失败 "价格界面-超级页", "超级50加|超级界面超级VIP"
+
+    If 超级状态 <> "是会员" Then
+        必须等待界面 39,181,511,357,"未开通超级vip|超会是会员|超会已过期",8,200,2,"关闭广告","价格界面-超级状态"
+        Select Case 等待命中图
+        Case "超会是会员"
+            超级状态 = "是会员"
+        Case "超会已过期"
+            超级状态 = "已过期"
+        Case Else
+            超级状态 = "未开通"
+        End Select
+        TracePrint "超级状态=" & 超级状态
+    End If
+
+    ' 6. 点击开通后必须真正进入超级价格确认页
+    Tap 572,422
+    Delay 1000
+    For stepTry = 1 To 30
+        If 静默找图(305,1116,710,1235,"超级确认协议") = 1 Then
+            TracePrint "已进入超级会员价格界面"
+            run code
+            Exit Function
         End If
-        Next
-        KillApp kg
-        Delay 1000
-        goto 重新打开vip 
-    Loop
-    run (code) 	
+        If 静默找图(107,507,287,617,"超级50加") = 1 Then Tap 572,422 : Delay 1000
+        If 静默找图(0,0,0,0,"app进会员服务") = 1 Then Delay 1200
+        If 静默找图(0,0,0,0,"app进会员价格加载中") = 1 Then Delay 1200
+        If stepTry Mod 10 = 0 Then 会员活动广告
+        Delay 300
+    Next
+    等待致命失败 "价格界面-超级价格确认", "超级确认协议"
 End Function
 Function 查超级价格
     
@@ -10830,307 +10408,157 @@ Function 支付密码()
     run (code)
 End Function
 Function appdl()
+    Dim loginTry,pageTry,ok
     初始化流程
-    Do
-        For 5
-            Call 找图(54,136,333,253,"验证码登录")
-            If x>0 Then 
-                TracePrint "现在在登录界面"
-                Exit Do
-            Else 
-                TracePrint "不在登录界面"
-                关闭广告
-            End If
-            Delay 200
-        next
-        初始化流程
-    Loop
-    Delay 300
-    '是否点同意
-    Do
-        For 5
-            Call 找色(194,1148,237,1187,"FF9203|FF9100|FF9101")
-            If x > 0 Then 
-                TracePrint "已点同意"
-                Exit do
-            Else 
-                TracePrint "没点同意"
-                Tap 211,1169
-            End If
-        Next
-        关闭广告
-    loop
-    '开始登录
-    Delay 500
+
+    必须等待界面 54,136,333,253,"验证码登录",8,250,2,"重启酷狗","APP登录-验证码页"
+
+    ' 同意勾选必须确认，避免未勾选导致登录按钮无效
+    For loginTry = 1 To 15
+        找色 194,1148,237,1187,"FF9203|FF9100|FF9101"
+        If x > 0 Then Exit For
+        Tap 211,1169
+        Delay 200
+    Next
+    If x <= 0 Then 等待致命失败 "APP登录-同意协议", "协议勾选颜色"
+
     Tap 290,333
-    Delay 500
+    Delay 300
     InputText 手机号
-    Delay 500
-    TracePrint "自动输入验证码"
+    Delay 300
     Tap 259,474
-    Delay 500
+    Delay 300
     InputText 验证码
     Delay 300
-    Tap 334, 718'点登录按钮
-    Delay 300
-    TracePrint "点登录"
-    '是否登录或已跳转
-    Rem 等待验证 
-    Delay 300
-    Call 找图(54,136,333,253,"验证码登录")
-    If x>0 Then 
-        TracePrint "未登录"
-        找图(290,410,542,562,"app验证码失效")
-        If x > 0 Then 
-            
+    Tap 334,718
+    TracePrint "已提交APP登录"
+
+    ' 最多等待约30秒。只有验证码页消失或明确出现后续页面才视为登录成功。
+    For loginTry = 1 To 60
+        If 静默找图(290,410,542,562,"app验证码失效") = 1 Then
             验证码1 = False
-            email= "登录失败，超过验证码使用次数，需重新发验证码"&",wp1:"&wp1&",wp3:"&wp3&",wp12:"&wp12&","&code
-            status id, "验证失效", 2, email
-            Delay 200
-            uporderid_status(oid,"验证失效")
+            email = "登录失败，超过验证码使用次数，需重新发验证码,wp1:" & wp1 & ",wp3:" & wp3 & ",wp12:" & wp12 & "," & code
+            status id,"验证失效",2,email
+            uporderid_status oid,"验证失效"
             KillApp kg
-            ord_result(oid,"码失效")
+            ord_result oid,"码失效"
             RestartScript
         End If
-        Delay 200
-        找图 0,0,0,0, "未输入手机号"
-        If x > 0 Then 
+
+        If 静默找图(0,0,0,0,"未输入手机号") = 1 Then
             Tap 290,333
-            Delay 500
+            Delay 300
             InputText 手机号
-            Delay 500
-            Tap 334, 718'点登录按钮
-            Delay 500
+            Delay 300
+            Tap 334,718
         End If
-        Goto 等待验证
-    Else 
-        //如果每找到就是登录成功
-        Goto 登录成功
-        TracePrint "没找到"
-    End If  
-    rem 登录成功
-    判断多账户()
-    Delay 2500
-    do 
-        For 15
+
+        ok = 等待任一图片(0,0,0,0,"推荐|请选择您要登录的账号|登录界面|登录界面2",1,0,"APP登录-结果")
+        If ok = 1 Then Exit For
+
+        ' 验证码登录页已经消失，也允许进入后续多账户/推荐页确认阶段
+        If 静默找图(54,136,333,253,"验证码登录") = 0 Then Exit For
+        Delay 500
+    Next
+    If loginTry > 60 Then 等待致命失败 "APP登录-提交后等待", "推荐|请选择您要登录的账号"
+
+    判断多账户
+    Delay 800
+
+    For pageTry = 1 To 3
+        For loginTry = 1 To 20
             临时 = xdpub.元素查找S({"text":"请选择您要登录的账号"})
-            If 临时 Then 
-                TracePrint "有多账户"
-                判断多账户 
-                Delay 1000
-            
+            If 临时 Then 判断多账户 : Delay 500
+
+            If 静默找图(0,0,0,0,"请选择您要登录的账号") = 1 Then 判断多账户 : Delay 500
+
+            If 静默找图(1,52,147,153,"推荐") = 1 Then
+                TracePrint "APP登录成功，已到推荐页"
+                tj = "首次"
+                Exit Function
             End If
-       
-            找图 0, 0, 0, 0, "请选择您要登录的账号"
-            If x > 0 Then 
-                判断多账户 
-                Delay 1000
-        	
-            End If
-        
-            For 3
-                找图(1,52,147,153,"推荐")
-                If x>0 Then 
-                    TracePrint "在推荐页"
-                    tj="首次"
-                    Exit Function
-                Else 
-                    TracePrint "没找到推荐"
-                End If
-                关闭广告
-            Next
-            找图 0, 0, 0, 0, "登录界面"
-            If x > 0 Then 
+
+            If 等待任一图片(0,0,0,0,"登录界面|登录界面2",1,0,"APP登录-失效检查") = 1 Then
                 验证码1 = False
-                email= "选择多用户后验证码失效"
-                status id, "验证错", 2, email
-                Delay 200
-                uporderid_status(oid,"验证失效")
+                email = "选择多用户后验证码失效"
+                status id,"验证错",2,email
+                uporderid_status oid,"验证失效"
                 KillApp kg
-                ord_result(oid,"码失效") 
+                ord_result oid,"码失效"
                 RestartScript
-        	
             End If
-            找图 0, 0, 0, 0, "登录界面2"
-            If x > 0 Then 
-                验证码1 = False
-                email= "选择多用户后验证码失效"
-                status id, "验证错", 2, email
-                Delay 200
-                uporderid_status(oid,"验证失效")
-                KillApp kg
-                ord_result(oid,"码失效") 
-                RestartScript
-        	
-            End If
-            Delay 100
+
+            关闭广告
+            Delay 300
         Next
-        KillApp kg
-        Delay 1000
-        RunApp kg
-        Delay 2500 
-    Loop
-    run (code)
+        等待状态回传 "APP登录-推荐页", "未确认推荐页，第" & pageTry & "次重启酷狗"
+        执行等待恢复 "重启酷狗"
+    Next
+
+    等待致命失败 "APP登录-推荐页", "推荐"
 End Function
 Function 初始化流程()
-    Rem k3 
-    Delay 500
+    Dim initStage,ok
+    TracePrint "==== 初始化酷狗登录环境 ===="
     Sys.ClearAppCache "com.kugou.android"
-    TracePrint "qingshuju "
     Delay 500
+
     RunApp "com.phoneinfo.changerpro"
-    TracePrint "yunxingid "
     Delay 800
-    Do
-        For 5
+    必须等待界面 2,1008,313,1172,"备份当前信息",5,200,2,"重启改机","初始化-改机主页"
+    必须点击图片 57,932,363,1052,"全部随机",0,0,5,200,300,2,"重启改机","初始化-全部随机"
+    必须点击图片 367,943,679,1060,"应用",0,0,5,200,300,2,"重启改机","初始化-应用信息"
 
-            找图 2,1008,313,1172,"备份当前信息"
-            If x>0 Then 
-                Delay 100
-                Exit Do
-            End If
-            Delay 200
-        Next
-       
-        RunApp "com.phoneinfo.changerpro"
-        Delay 800
-    Loop
-    Do
-        For 3
-            
-            找图 57,932,363,1052,"全部随机"
-            If x>0 Then 
-                Tap x, y
-                Delay 300
-                Exit Do
-            End If
-            Delay 200
-        Next
-        Delay 200
-    Loop
-    Do
-        For 3
-            
-                       
-            找图 367,943,679,1060,"应用"
-            If x>0 Then 
-                Tap x, y
-                Delay 300
-                TracePrint "点击应用"
-                Exit Do
-            End If
-            Delay 200
-        Next
-        Delay 200
-    Loop
-    Delay 200
-    RunApp "com.kugou.android"
-    TracePrint "启动kg"
-    Delay 500
-    Do
-        For 5
-            找图 0,0,0,0,"app同意"
-            If x>0 Then 
-                Tap x, y 
-                Delay 500
-                TracePrint "点同意"
-                Exit Do
-            End If
-            Delay 500
-        Next
-        Delay 500
-    Loop
-    Delay 500
-    Do
-        For 5
-            找图 0,0,0,0,"app跳过"
-            If x>0 Then 
-                Tap x+50, y+30 
-                Delay 500
-                TracePrint "点跳过"
-                Exit Do
-            End If
-            TracePrint "找跳过"
-            提取文本 "android.widget.Button", "com.kugou.android:id/bhi", 579, 40, 681, 101,"","yes"
-            If text1 = "跳过" Then 
-                Tap 630, 67
-                Delay 500
-                TracePrint "点跳过"
-                Exit Do
-            End If
-            Delay 500
-        Next
-        Delay 500
-    Loop
-    Do
-        For 5
-            找图 0,0,0,0,"app手机登录"
-            If x>0 Then 
-                Tap x, y 
-                Delay 500
-                TracePrint "点手机登录"
-                Exit Do
-            End If
-            找图 0, 0, 0, 0, "手机登录1"
-            If x > 0 Then 
-                Tap x, y
-                Delay 500
-                Exit Do
-            End If
-            找图 0, 0, 0, 0, "手机登录2"
-            If x > 0 Then 
-                Tap x, y
-                Delay 500
-                Exit Do
-            End If
-            临时 = xdpub.元素查找S({"text":"手机登录"})
-            If 临时 Then 
-                Delay 500
-                xdpub.元素点击(临时,200)    
-                Exit Do
-            End If 
-            Delay 200
-            找图 0,0,0,0,"app跳过"
-            If x>0 Then 
-                Tap x+50, y+30 
-                Delay 500
-                
-                TracePrint "点跳过"
-                
-            End If
-        Next 
-        Delay 200
-    Loop
-    Do
-        For 10
-            Call 找图(54,136,333,253,"验证码登录")
-            If x>0 Then 
-                Exit Do	
-            Else 
-                TracePrint "没找到"
-            End If
-            
-            Delay 200
-        Next
+    RunApp kg
+    TracePrint "启动酷狗"
+    Delay 800
 
-        Delay 200
-        //找不到初始页，则返回k3位置
-        Goto k3
-    Loop
-    临时 = xdpub.元素查找S({"text":"同意"})
-    If 临时 Then 
-        xdpub.元素点击(临时,300)
-    Else 
-        TracePrint "没找到"
+    ' 同意页可能被版本升级跳过，因此允许直接命中后续页面
+    ok = 必须等待界面(0,0,0,0,"app同意|app跳过|app手机登录|手机登录1|手机登录2|验证码登录",10,300,2,"重启酷狗","初始化-启动页")
+    If 等待命中图 = "app同意" Then
+        Tap x,y
+        Delay 500
     End If
-    
-    Delay 500
-    //等待登录
+
+    ' 跳过页是可选状态；如果已经到登录页则直接进入下一阶段
+    ok = 等待任一图片(0,0,0,0,"app跳过|app手机登录|手机登录1|手机登录2|验证码登录",10,300,"初始化-跳过页")
+    If ok = 0 Then
+        提取文本 "android.widget.Button", "com.kugou.android:id/bhi", 579, 40, 681, 101,"","yes"
+        If text1 = "跳过" Then
+            Tap 630,67
+            Delay 500
+        Else
+            等待致命失败 "初始化-跳过页", "app跳过|app手机登录|手机登录1|手机登录2|验证码登录"
+        End If
+    ElseIf 等待命中图 = "app跳过" Then
+        Tap x+50,y+30
+        Delay 500
+    End If
+
+    ' 手机登录入口同样可能已经被跳过
+    ok = 等待任一图片(0,0,0,0,"app手机登录|手机登录1|手机登录2|验证码登录",10,250,"初始化-手机登录入口")
+    If ok = 0 Then
+        临时 = xdpub.元素查找S({"text":"手机登录"})
+        If 临时 Then
+            xdpub.元素点击(临时,200)
+            Delay 500
+        Else
+            等待致命失败 "初始化-手机登录入口", "app手机登录|手机登录1|手机登录2|验证码登录"
+        End If
+    ElseIf 等待命中图 <> "验证码登录" Then
+        Tap x,y
+        Delay 500
+    End If
+
+    必须等待界面 54,136,333,253,"验证码登录",12,250,2,"重启酷狗","初始化-验证码登录页"
+
+    临时 = xdpub.元素查找S({"text":"同意"})
+    If 临时 Then xdpub.元素点击(临时,300)
+    Delay 300
     Tap 290,333
     Delay 500
-    run (code)
+    run code
 End Function
-
 Function 判断多账户()
     
 
@@ -11974,119 +11402,51 @@ Function 关闭夸克广告()
 End Function
 
 Function 取消续费()
-    RunApp "com.eg.android.AlipayGphone"
-    Delay 1000
-    rem 重新打开支付宝
-    Do
-        For 5
-            Call 找图(110, 64, 419, 327, "支付宝页面")
-            If x > 0 Then 
-                TracePrint "进入支付宝了"
-                Delay 1000
-                Tap 642, 1222
-                TracePrint "点击我的"
-                Delay 1000
-                Exit Do
-            End If
-            Delay 100
-        Next
-        Delay 100
-        KillApp "com.eg.android.AlipayGphone"
+    Dim deleteRound,flowTry,navigationOk
+    navigationOk = False
+
+    ' 支付宝导航任一环节失败，都从首页完整重来，不在错误页面继续固定坐标点击
+    For flowTry = 1 To 3
+        RunApp zfb
         Delay 1000
-        RunApp "com.eg.android.AlipayGphone"
-        Delay 1500
-    Loop
-    For 15
-        Call 找图(569,44,717,157, "zfb设置")
-        If x > 0 Then 
-            TracePrint "进入设置界面"
-            Tap x,y
-            Exit for
-        End If
-        Delay 100
-    Next
-    Delay 1500
-    Tap 110, 460
-    Delay 1500
-    Tap 230, 385
-    For 15
-        Call 找图(15,514,593,1265, "zfb续费图标")
-        If x > 0 Then 
-            TracePrint "进入续费"
-            Tap x,y
-            Exit for
-        End If
-        Delay 100
-    Next
-    Do
-        For 15
-            Call 找图(67,138,595,389, "zfb续费图标")
-            If x > 0 Then 
-                TracePrint "进入列表"
-                Tap x,y
-                Exit for
+        If 等待任一图片(110,64,419,327,"支付宝页面",8,200,"取消续费-支付宝首页") = 1 Then
+            Tap 642,1222
+            Delay 800
+            If 等待并点击图片(569,44,717,157,"zfb设置",0,0,15,100,1000,"取消续费-设置") = 1 Then
+                Tap 110,460
+                Delay 1200
+                Tap 230,385
+                Delay 800
+                If 等待并点击图片(15,514,593,1265,"zfb续费图标",0,0,15,120,1000,"取消续费-续费入口") = 1 Then
+                    If 等待并点击图片(67,138,595,389,"zfb续费图标",0,0,15,120,500,"取消续费-服务列表") = 1 Then
+                        navigationOk = True
+                        Exit For
+                    End If
+                End If
             End If
-            Delay 100
-        Next
-        Goto 重新打开支付宝
-    loop
-    Do
-        For 5
-            Call 找图(559,456,707,561, "zfb管理")
-            If x > 0 Then 
-                TracePrint "开始删除"
-                Tap x, y
-                for 10
-                    Call 找图(0,0,0,0, "zfb关闭")
-                    If x > 0 Then 
-                        TracePrint "开始删除"
-                        Tap x, y 
-                        Exit For
-                    End If
-                Next
-                for 10
-                    Call 找图(0,0,0,0, "zfb确认关闭")
-                    If x > 0 Then 
-                        TracePrint "开始删除"
-                        Tap x, y 
-                        Exit For
-                    End If
-                Next
-                Delay 2500 
-                for 10
-                    Call 找图(536,719,719,866, "zfb管理")
-                    If x > 0 Then 
-                        TracePrint "开始删除"
-                        Tap x, y 
-                        Exit For
-                    End If
-                Next 
-                for 10
-                    Call 找图(0,0,0,0, "zfb关闭")
-                    If x > 0 Then 
-                        TracePrint "开始删除"
-                        Tap x, y 
-                        Exit For
-                    End If
-                Next
-                for 10
-                    Call 找图(0,0,0,0, "zfb确认关闭")
-                    If x > 0 Then 
-                        TracePrint "开始删除"
-                        Tap x, y 
-                        Exit For
-                    End If
-                Next
-                Delay 2500
-            Else 
-                TracePrint "删完了"
-                Exit Do
-            End If
-            Delay 100
-        Next
-        Delay 100
-    Loop
-    run (code)
+        End If
+        等待状态回传 "取消续费-导航", "第" & flowTry & "次导航失败，从支付宝首页重试"
+        执行等待恢复 "重启支付宝"
+    Next
+    If navigationOk = False Then 等待致命失败 "取消续费-导航", "支付宝页面|zfb设置|zfb续费图标"
+
+    ' 最多处理10个可关闭项目；只有确认管理按钮消失才视为完成
+    For deleteRound = 1 To 10
+        If 等待任一图片(559,456,707,561,"zfb管理",5,150,"取消续费-管理按钮") = 0 Then Exit For
+        Tap x,y
+        Delay 300
+        必须点击图片 0,0,0,0,"zfb关闭",0,0,10,150,300,1,"无","取消续费-关闭服务"
+        必须点击图片 0,0,0,0,"zfb确认关闭",0,0,10,150,1800,1,"无","取消续费-确认关闭"
+
+        If 等待并点击图片(536,719,719,866,"zfb管理",0,0,4,150,300,"取消续费-第二管理按钮") = 1 Then
+            必须点击图片 0,0,0,0,"zfb关闭",0,0,10,150,300,1,"无","取消续费-第二关闭服务"
+            必须点击图片 0,0,0,0,"zfb确认关闭",0,0,10,150,1800,1,"无","取消续费-第二确认关闭"
+        End If
+    Next
+
+    If 等待任一图片(559,456,707,561,"zfb管理",3,150,"取消续费-完成确认") = 1 Then 等待致命失败 "取消续费-完成确认", "zfb管理"
+    TracePrint "支付宝续费项目已处理完成"
+    run code
 End Function
 Function 推荐页到个人信息()
     
@@ -13742,18 +13102,7 @@ Function 修正金额(t)'如果识别不符，则弹出提示
     Else 
         Exit Function
     End If
-    do
-        For 10
-            Call 找图(0,0,0,0, "home")
-            If x > 0 Then 
-                TracePrint "在桌面"
-                Exit Do
-            End If
-            Delay 100
-        Next
-        Delay 100
-        TracePrint "等待回到桌面"
-    Loop
+    必须等待界面 0,0,0,0,"home",10,100,3,"回桌面","金额修正-等待桌面"
 End Function
 
 Function run(dev)
@@ -14164,30 +13513,25 @@ Function 滑块验证
         next
     	
     	
-        Do 
-            ' 领券界面
-            For 10
-                找图 0, 0, 0, 0, "via3天"
-                If x > 0 Then
-                    TracePrint "进入领券界面"
-                    Delay 500
-                    Exit Function
-                End If
-                Delay 300
-            Next
-            For 5
-                找图 0,0,0,0, "via三天滑动验证"
-                If x > 0 Then Exit Do 
-                Delay 200
-                找图 0,0,0,0, "via滑块界面"
-                If x > 0 Then Exit Do 
-                Delay 200
-                找图 0,0,0,0, "via滑块界面2"
-                If x > 0 Then Exit Do 
-                Delay 200
-            next
-        Loop
-        TracePrint try
+        Dim verifyPageTry,verifyStillHere
+        verifyStillHere = False
+        For verifyPageTry = 1 To 15
+            If 静默找图(0,0,0,0,"via3天") = 1 Then
+                TracePrint "进入领券界面"
+                Delay 500
+                Exit Function
+            End If
+            If 等待任一图片(0,0,0,0,"via三天滑动验证|via滑块界面|via滑块界面2",1,0,"滑块-结果检查") = 1 Then
+                verifyStillHere = True
+                Exit For
+            End If
+            Delay 300
+        Next
+        If verifyStillHere = False Then
+            TracePrint "滑块后未确认成功页或验证页，本轮重新识别"
+            Goto 下一次识别
+        End If
+TracePrint try
         If try = 5 Then Tap 174, 740 : Delay 1000 : Goto 邮件通知
         tap 174,740 :Delay 1000
     rem 下一次识别
@@ -14390,10 +13734,65 @@ Function code_upload_batch
 End Function
 
 
-' 返回 1=成功点击，0=没找到
-Function TryTapPic(x1, y1, x2, y2, picName, offsetX, offsetY, postDelay, logText)
-    找图(x1, y1, x2, y2, picName)
+\
+'========================
+' 统一等待 / 点击 / 恢复框架
+' - 可选等待：返回 1/0，由调用方决定下一步
+' - 必须等待：多次恢复仍失败时截图、回传状态并重启脚本，绝不跳过继续
+' - 多图使用 | 分隔，例如："图A|图B|图C"
+'========================
+Dim 等待命中图,等待步骤,等待恢复轮次
+
+' 静默找图：避免高频等待时刷大量“没找到”日志
+Function 静默找图(x1, y1, x2, y2, picName)
+    FindPic x1, y1, x2, y2, "Attachment:" & picName & ".png", "000000", 0, 0.9, x, y
     If x > 0 Then
+        find = True
+        tx = x
+        ty = y
+        静默找图 = 1
+    Else
+        find = False
+        x = -1
+        y = -1
+        tx = -1
+        ty = -1
+        静默找图 = 0
+    End If
+End Function
+
+' 等待任意一张图片出现；成功返回1并把图片名写入 等待命中图
+Function 等待任一图片(x1, y1, x2, y2, picNames, maxLoop, intervalMs, stepName)
+    Dim waitIndex,picIndex,picList,picName
+    等待命中图 = ""
+    picList = Split(picNames, "|")
+    For waitIndex = 1 To maxLoop
+        For picIndex = 0 To UBound(picList)
+            picName = Trim(picList[picIndex])
+            If picName <> "" Then
+                If 静默找图(x1, y1, x2, y2, picName) = 1 Then
+                    等待命中图 = picName
+                    If stepName <> "" Then TracePrint "[" & stepName & "] 已命中：" & picName & "，坐标=" & x & "," & y
+                    等待任一图片 = 1
+                    Exit Function
+                End If
+            End If
+        Next
+        If intervalMs > 0 Then Delay intervalMs
+    Next
+    If stepName <> "" Then TracePrint "[" & stepName & "] 等待超时，候选图：" & picNames
+    等待任一图片 = 0
+End Function
+
+' 兼容旧调用：等待单图
+Function WaitPic(x1, y1, x2, y2, picName, maxLoop, intervalMs, logText)
+    WaitPic = 等待任一图片(x1, y1, x2, y2, picName, maxLoop, intervalMs, logText)
+End Function
+
+' 尝试找图并点击一次；成功返回1
+Function TryTapPic(x1, y1, x2, y2, picName, offsetX, offsetY, postDelay, logText)
+    If 静默找图(x1, y1, x2, y2, picName) = 1 Then
+        If logText <> "" Then TracePrint logText & " | x=" & x & " y=" & y
         Delay 100
         Tap x + offsetX, y + offsetY
         If postDelay > 0 Then Delay postDelay
@@ -14403,19 +13802,136 @@ Function TryTapPic(x1, y1, x2, y2, picName, offsetX, offsetY, postDelay, logText
     TryTapPic = 0
 End Function
 
-' 等待某个图出现（只找不点），成功返回1，超时返回0
-Function WaitPic(x1, y1, x2, y2, picName, maxLoop, intervalMs, logText)
-    Dim i
-    For i = 1 To maxLoop
-        找图(x1, y1, x2, y2, picName)
-        If x > 0 Then
-            //            If logText <> "" Then TracePrint logText & " | x=" & x & " y=" & y
-            WaitPic = 1
+' 等待任意图片并点击；成功返回1，超时返回0
+Function 等待并点击图片(x1, y1, x2, y2, picNames, offsetX, offsetY, maxLoop, intervalMs, postDelay, stepName)
+    If 等待任一图片(x1, y1, x2, y2, picNames, maxLoop, intervalMs, stepName) = 1 Then
+        Tap x + offsetX, y + offsetY
+        If postDelay > 0 Then Delay postDelay
+        等待并点击图片 = 1
+    Else
+        等待并点击图片 = 0
+    End If
+End Function
+
+' 统一恢复动作。恢复只负责把页面拉回可识别状态，不会让流程向后跳过。
+Function 执行等待恢复(recoverMode)
+    TracePrint "执行等待恢复：" & recoverMode
+    Select Case recoverMode
+    Case "关闭广告"
+        关闭广告
+        Delay 500
+    Case "重启酷狗"
+        KillApp kg
+        Delay 800
+        RunApp kg
+        Delay 1800
+        关闭广告
+    Case "重启夸克"
+        KillApp qk
+        Delay 500
+        RunApp qk
+        Delay 1200
+    Case "重启Via"
+        KillApp via
+        Delay 500
+        RunApp via
+        Delay 1200
+    Case "重启支付宝"
+        KillApp zfb
+        Delay 800
+        RunApp zfb
+        Delay 1500
+    Case "重启改机"
+        KillApp "com.phoneinfo.changerpro"
+        Delay 500
+        RunApp "com.phoneinfo.changerpro"
+        Delay 1000
+    Case "最近任务"
+        RunApp "com.android.systemui", ".recents.RecentsActivity"
+        Delay 600
+    Case "返回"
+        KeyPress "back"
+        Delay 500
+    Case "回桌面"
+        KeyPress "Home"
+        Delay 500
+    Case Else
+        Delay 500
+    End Select
+End Function
+
+' 恢复前统一记录一次，不在每个轮询中刷状态
+Function 等待状态回传(stepName, detail)
+    Dim waitDetail
+    waitDetail = "[等待恢复][" & stepName & "]" & detail & ",设备:" & code & ",订单号:" & oid
+    TracePrint waitDetail
+    If CStr(id) <> "" Then
+        status id, "等待重试", 2, waitDetail
+        cstatus id
+        If c_status = 2 or c_status = "2" Then
+            status id, "已拦截", 2, "等待过程中收到手动拦截：" & stepName
+            ord_result oid, "拦截"
+            RestartScript
+        End If
+    End If
+End Function
+
+' 致命等待失败：必须终止当前流程，禁止继续进入下一业务步骤
+Function 等待致命失败(stepName, picNames)
+    Dim waitDetail
+    waitDetail = "[等待超时][" & stepName & "]多次恢复后仍未确认目标界面，候选图：" & picNames & ",设备:" & code & ",订单号:" & oid
+    TracePrint waitDetail
+    截图 "特殊界面"
+    If CStr(id) <> "" Then status id, "等待超时", 2, waitDetail
+    email = waitDetail
+    发邮件 email
+    RestartScript
+End Function
+
+' 必须确认目标界面。失败时执行指定恢复动作；全部失败后重启脚本，不会向后跳过。
+Function 必须等待界面(x1, y1, x2, y2, picNames, maxLoop, intervalMs, recoverTimes, recoverMode, stepName)
+    Dim recoverIndex
+    For recoverIndex = 0 To recoverTimes
+        If 等待任一图片(x1, y1, x2, y2, picNames, maxLoop, intervalMs, stepName) = 1 Then
+            必须等待界面 = 1
             Exit Function
         End If
-        Delay intervalMs
+        If recoverIndex < recoverTimes Then
+            等待状态回传 stepName, "第" & (recoverIndex + 1) & "次等待超时，准备执行：" & recoverMode
+            执行等待恢复 recoverMode
+        End If
     Next
-    WaitPic = 0
+    等待致命失败 stepName, picNames
+    必须等待界面 = 0
+End Function
+
+' 必须找到并点击目标图片。失败策略与 必须等待界面 相同。
+Function 必须点击图片(x1, y1, x2, y2, picNames, offsetX, offsetY, maxLoop, intervalMs, postDelay, recoverTimes, recoverMode, stepName)
+    If 必须等待界面(x1, y1, x2, y2, picNames, maxLoop, intervalMs, recoverTimes, recoverMode, stepName) = 1 Then
+        Tap x + offsetX, y + offsetY
+        If postDelay > 0 Then Delay postDelay
+        必须点击图片 = 1
+    Else
+        必须点击图片 = 0
+    End If
+End Function
+
+' 从最近任务中选择酷狗并继续支付，统一替代六段相同的无限循环
+Function 选择最近任务酷狗()
+    Dim recentTry
+    For recentTry = 1 To 4
+        If 等待任一图片(0, 0, 0, 0, "弹起列表酷狗app|弹起列表酷狗app2", 20, 200, "最近任务-酷狗") = 1 Then
+            Tap x + 20, y + 10
+            Delay 500
+            支付密码
+            选择最近任务酷狗 = 1
+            Exit Function
+        End If
+        等待状态回传 "最近任务-酷狗", "未找到酷狗任务卡，第" & recentTry & "次重新打开最近任务"
+        执行等待恢复 "最近任务"
+    Next
+    等待致命失败 "最近任务-酷狗", "弹起列表酷狗app|弹起列表酷狗app2"
+    选择最近任务酷狗 = 0
 End Function
 
 ' 从某个页面返回到上一级（多次back）
@@ -14429,258 +13945,105 @@ End Sub
 '========================
 ' 主流程：领取权益
 '========================
+Function 领取一次智能权益()
+    必须等待界面 0,0,0,0,"智能权益确认领取",20,300,2,"返回","领取权益-确认领取"
+    Tap 462,492 : Delay 260
+    Tap 432,629 : Delay 260
+    Tap 406,761 : Delay 260
+    Tap 394,915 : Delay 260
+    Tap 374,1053 : Delay 1000
+
+    必须等待界面 0,0,0,0,"领取成功|领权益成功关闭",20,500,2,"无","领取权益-成功确认"
+    Tap 154,1097
+    Delay 300
+    领取一次智能权益 = 1
+End Function
+
 Function 领取权益()
-    dim ok
-   
+    Dim ok,retry,claimIndex
     TracePrint "==== 开始领取权益 ===="
 
-    '-------------------------
-    ' 1) 先尝试在当前APP里直接领取（两张图）
-    '-------------------------
-    For retry = 1 To 5    
-        ok = TryTapPic (0,0,0,0, "app直接领权益", 0, 0, 900, "发现：app直接领权益，点击进入")
-        
-        If ok = 1 Then GoTo 智能设备vip流程
-    
-        ok = TryTapPic(0, 0, 0, 0, "app直接领权益2", 0, 0, 900, "发现：app直接领权益2，点击进入")
-        
-        If ok = 1 Then GoTo 智能设备vip流程
-
+    For retry = 1 To 5
+        ok = TryTapPic(0,0,0,0,"app直接领权益",0,0,900,"发现app直接领权益")
+        If ok = 1 Then Goto 智能设备vip流程
+        ok = TryTapPic(0,0,0,0,"app直接领权益2",0,0,900,"发现app直接领权益2")
+        If ok = 1 Then Goto 智能设备vip流程
         Delay 200
     Next
 
-
-    '-------------------------
-    ' 3) 走夸克 Web 流程（带超时重试）
-    '-------------------------
-    rem 重新打开页面
-    zm.OpenURL(url_webcj)
-    Delay 1500
-
-    ' 等待主页出现，最多尝试 2 次重新拉起
-    do
-        For retry = 1 To 12
-            ok = TryTapPic(0,0,0,0, "via领权益确定", 45, 25, 200, "夸克中发现：via领权益确定")
-            If ok = 1 Then tap x+50,y+30 :Exit Do
-            Delay 200
-            If retry = 5 Then tap 667,95:Delay 500
-        Next    	
-        zm.OpenURL(url_webcj)
+    For retry = 1 To 3
+        zm.OpenURL url_webcj
         Delay 1500
-    loop
-    Delay 2500
-    '========================
-    ' 智能设备vip流程
-    '========================
-    rem 智能设备vip流程
+        If 等待并点击图片(0,0,0,0,"via领权益确定",45,25,12,200,2500,"领取权益-Web入口") = 1 Then Exit For
+        等待状态回传 "领取权益-Web入口", "第" & retry & "次重新打开页面"
+    Next
+    If retry > 3 Then 等待致命失败 "领取权益-Web入口", "via领权益确定"
 
-    TracePrint "进入【智能设备vip】领取流程"
+    Rem 智能设备vip流程
+    TracePrint "进入智能设备VIP领取流程"
+    For retry = 1 To 3
+        If 等待任一图片(0,0,0,0,"智能设备vip",10,500,"领取权益-智能设备VIP") = 1 Then Exit For
+        If WaitPic(0,0,0,0,"app未登陆",2,250,"app未登陆") = 1 Then
+            等待致命失败 "领取权益-未登录", "app未登陆"
+        End If
+        If WaitPic(0,0,0,0,"app优惠券界面",2,250,"app优惠券界面") = 1 Then
+            Tap 659,1124
+            Delay 1500
+        End If
+        等待状态回传 "领取权益-智能设备VIP", "第" & retry & "次重新打开入口"
+        zm.OpenURL url_webcj
+        Delay 1500
+    Next
+    If retry > 3 Then 等待致命失败 "领取权益-智能设备VIP", "智能设备vip"
 
-    ' 找“智能设备vip”图，最多尝试 3 次；每次失败就回退重新打开入口
-    do
-        For retry = 1 To 3
-            ok = WaitPic(0, 0, 0, 0, "智能设备vip", 10, 550, "智能设备vip")
-            If ok = 1 Then Exit do
-            Delay 200
-            
-            ok = WaitPic(0, 0, 0, 0, "app未登陆", 2, 250, "app未登陆")
-            If ok = 1 Then 发邮件 "领权益：app未登陆":RestartScript
-            Delay 200
-            If retry = 3 Then tap 659,1124 :TracePrint "没找到再点一次" :Delay 2000
-            Delay 200
-            ok = WaitPic(0, 0, 0, 0, "app优惠券界面", 2, 250, "app优惠券界面")
-            If ok = 1 Then 
-                ok = WaitPic(0, 0, 0, 0, "智能设备vip", 5, 250, "智能设备vip")
-                If ok = 0 Then TracePrint "领权益：app未找到" :发邮件 "领权益：app未找到" :Exit Function
-            End If
-            Delay 200
-        Next
-        //        发邮件 "领权益：app未找到"
-        goto 重新打开页面
-    loop
-    ' 点击“领取”（你原来 Tap x+378,y+42）
-    Tap tx+378, ty+42
-    TracePrint "点击：智能设备vip-领取按钮"
+    Tap tx+378,ty+42
     Delay 800
-    dim exitdo
-	do
-    	Do
-    		找图 0,0,0,0, "智能权益确认领取"
-    		If find = true Then 
-    			' 下面你原来的一串固定坐标点击
-    			' 建议：这块最好也改成找图定位，但我先保留逻辑 + 加等待/兜底
-    			'-------------------------
-    			Tap 462,492 : Delay 260
-    			Tap 432,629 : Delay 260
-    			Tap 406,761 : Delay 260
-    			Tap 394,915 : Delay 260
-    			Tap 374, 1053 : Delay 1000
-    			Exit Do
-    		End If
-    		Delay 300	
-    	Loop
-    	
-    	do
-    		找图 0,0,0,0, "领取成功"
-    		If find = true Then 
-    			Tap 154,1097 '点空白位置关闭
-    			exitdo=true
-    			Exit Do
-    		End If
-    		Delay 500
-    		找图 0,0,0,0, "领权益成功关闭"' 等待领取成功
-    		If find = true Then 
-    			Tap 154,1097 '点空白位置关闭
-    			exitdo=true
-    			Exit Do
-    		End If
-    	Loop
-    	If exitdo = true Then 
-    		Exit Do
-    	End If
-    Loop
-    '-------------------------
-    If duoci > 0 Then   
-    	For i = 1 To duoci-1
-    		找图 0, 0, 0, 0, "智能设备vip"
-    		If find = true Then 
-    			Tap tx + 378, ty + 42
-    			TracePrint "点击：智能设备vip-领取按钮"
-    			Delay 800
-    			Do
-    				找图 0,0,0,0, "智能权益确认领取"
-    				If find = true Then 
-    					' 下面你原来的一串固定坐标点击
-    					' 建议：这块最好也改成找图定位，但我先保留逻辑 + 加等待/兜底
-    					'-------------------------
-    					Tap 462,492 : Delay 260
-    					Tap 432,629 : Delay 260
-    					Tap 406,761 : Delay 260
-    					Tap 394,915 : Delay 260
-    					Tap 374, 1053 : Delay 1000
-    					Exit Do
-    				End If
-    				Delay 300	
-    			Loop
-    			do
-    				找图 0,0,0,0, "领取成功"
-    				If find = true Then 
-    					Tap 154,1097 '点空白位置关闭
-    					Exit Do
-    				End If
-    				Delay 500
-    				找图 0,0,0,0, "领权益成功关闭"' 等待领取成功
-    				If find = true Then 
-    					Tap 154,1097 '点空白位置关闭
-    					Exit Do
-    				End If
-    			Loop
-    		End If
-    		Delay 200
-    	Next
-    End If  
+    领取一次智能权益
+
+    If duoci > 1 Then
+        For claimIndex = 2 To duoci
+            必须等待界面 0,0,0,0,"智能设备vip",10,300,2,"返回","领取权益-下一张权益"
+            Tap tx+378,ty+42
+            Delay 800
+            领取一次智能权益
+        Next
+    End If
+
     KeyPress "back"
     Delay 500
-    run (code)
-    TracePrint "==== 领取智能vip完成：回到账户中心 ===="
+    run code
+    TracePrint "==== 领取智能VIP完成：回到账户中心 ===="
     领取权益 = 1
 End Function
 Function 夸克登陆
-    dim ok
-    ok = WaitPic(0, 0, 0, 0, "web未登陆", 2, 250, "web未登陆")
-    If ok = 1 Then Tap x, y
-    Do
-        For 5
-            Call 找图(66,962,236,1087, "web同意")
-            If x > 0 Then 
-                Delay 500
-                '同意打钩
-                Tap x,y
-                Delay 200
-                Tap 236,301
-                Exit Do
-            End If
-        Next
-        Delay 100
-        KillApp qk
-        Delay 500
-        
-    Loop
-    rem 等待登录
-    Delay 200
-    Tap 271, 309
+    Dim ok
+    ok = WaitPic(0,0,0,0,"web未登陆",2,250,"web未登陆")
+    If ok = 1 Then Tap x,y
+
+    必须点击图片 66,962,236,1087,"web同意",0,0,8,200,500,2,"重启夸克","夸克登录-同意"
+    Tap 236,301
+    Delay 300
+    Tap 271,309
     Delay 300
     InputText "15220132122"
     Delay 300
-    Tap 612,414'发送验证码
-    Delay 30000
-    do
-        ok = WaitPic(0, 0, 0, 0, "web智能设备", 10, 500, "web智能设备")
-        If ok = 1 Then Exit Do
-        ShowMessage "等待中"
-        Delay 1000
-    loop
-    tap x+45,y+25 
-End Function
+    Tap 612,414
 
+    ' 验证码由外部输入/自动流程完成，最长等待约90秒；失败绝不继续点击后续页面
+    必须等待界面 0,0,0,0,"web智能设备",90,1000,1,"重启夸克","夸克登录-智能设备页"
+    Tap x+45,y+25
+End Function
 Function 分享()
-    do
-        Call 找图(382,981,495,1084,"其他平台")
-        If x>0 Then 
-            TracePrint "其他平台"
-            Tap x,y
-            Delay 1000
-            Exit do
-        Else 
-            TracePrint "没找其他平台"
-            Tap x, y
-            Delay 1000
-        End If
-        Delay 200
-        
-    loop
-    do
-        找图 0,0,0,0, "via-logo分享"
-        If x>0 Then 
-            TracePrint "via-logo分享"
-            Tap x,y
-            Delay 1000
-            Exit do
-        End If
-        Delay 200
-    loop
-    do 
-        找图 1,40,553,204, "via礼品卡页面2"
-        If x>0 Then 
-            TracePrint "via礼品卡页面2"
-            Exit do
-        End If
-        Delay 200
-        找图 0,0,0,0, "via3天"
-        If x>0 Then 
-            TracePrint "via礼品卡页面2"
-            Exit do
-        End If
-        Delay 200
-    loop
-    Touch 150, 98, 1000
-    Do
-        For 10
-            找图 0,0,0,0, "via复制"
-            If x>0 Then 
-                TracePrint "via复制"
-                Tap x,y
-                Delay 200
-            	
-                Exit Do
-            End If
-            Delay 200	
-        Next
-        Touch 150, 98, 1000
-    Loop
-    
+    Dim copyTry
+    必须点击图片 382,981,495,1084,"其他平台",0,0,12,200,1000,2,"无","分享-其他平台"
+    必须点击图片 0,0,0,0,"via-logo分享",0,0,12,200,1000,2,"无","分享-Via"
+    必须等待界面 0,0,0,0,"via礼品卡页面2|via3天",12,200,2,"无","分享-礼品卡页面"
+
+    Touch 150,98,1000
+    For copyTry = 1 To 3
+        If 等待并点击图片(0,0,0,0,"via复制",0,0,10,200,200,"分享-复制") = 1 Then Exit Function
+        等待状态回传 "分享-复制", "未找到复制按钮，第" & copyTry & "次重新长按"
+        Touch 150,98,1000
+    Next
+    等待致命失败 "分享-复制", "via复制"
 End Function
-
-
-
-
