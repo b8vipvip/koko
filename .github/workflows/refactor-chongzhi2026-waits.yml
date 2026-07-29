@@ -1,0 +1,50 @@
+name: Refactor 充值2026 wait framework
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'anjianjingling/refactor_wait_framework.py'
+      - 'anjianjingling/.wait-refactor-trigger'
+      - '.github/workflows/refactor-chongzhi2026-waits.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  refactor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Apply wait framework refactor
+        shell: bash
+        run: |
+          set -o pipefail
+          python anjianjingling/refactor_wait_framework.py \
+            'anjianjingling/充值2026(db666069-c1bb-4a3a-b006-f19a0373a7f0).mq' \
+            2>&1 | tee /tmp/refactor.log
+
+      - name: Upload refactor log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wait-refactor-failure-log
+          path: /tmp/refactor.log
+
+      - name: Commit optimized source to PR branch
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'anjianjingling/充值2026(db666069-c1bb-4a3a-b006-f19a0373a7f0).mq'
+          if git diff --cached --quiet; then
+            echo 'No source changes to commit.'
+            exit 0
+          fi
+          git commit -m 'Refactor wait and timeout framework [skip ci]'
+          git push origin HEAD:${{ github.head_ref }}
