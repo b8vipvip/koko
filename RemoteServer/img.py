@@ -382,15 +382,61 @@ def log_current_mapped_adb_devices():
 
 
 
-def parse_adb_reverse_list(output):
-    """解析 adb reverse --list，返回已经存在 tcp:PORT -> tcp:PORT 映射的设备集合。"""
+def parse_adb_reverse_list(output, device=None):
+    """解析 adb reverse --list，只识别目标设备上的 tcp:PORT -> tcp:PORT。"""
     mapped = set()
     target = f"tcp:{ADB_REVERSE_PORT}"
     for line in (output or "").splitlines():
         parts = line.split()
-        if len(parts) >= 3 and parts[1] == target and parts[2] == target:
-            mapped.add(parts[0])
+        if len(parts) == 3 and parts[1] == target and parts[2] == target:
+            if device is None or parts[0] == device:
+                mapped.add(parts[0])
+        elif device is not None and parts == [target, target]:
+            # 兼容只输出两列端口、未携带序列号的 adb 版本。
+            mapped.add(device)
     return mapped
+
+
+def refresh_adb_reverse_mappings(devices):
+    """逐台查询真实映射；仅映射丢失时修复，查询失败时避免盲目重建。"""
+    adb_reverse_mapped_devices.intersection_update(devices)
+
+    for device in dict.fromkeys(devices):
+        try:
+            # 多模拟器在线时必须指定 -s，否则 adb 可能报 more than one device。
+            reverse_result = adb_cmd(["-s", device, "reverse", "--list"], timeout=10)
+        except Exception as exc:
+            adb_reverse_mapped_devices.discard(device)
+            startup_log(f"【ADB反向端口】查询映射失败：{device}，原因：{exc}")
+            continue
+
+        if reverse_result.returncode != 0:
+            adb_reverse_mapped_devices.discard(device)
+            reason = (reverse_result.stderr or reverse_result.stdout or "未知错误").strip()
+            startup_log(f"【ADB反向端口】查询映射失败：{device}，原因：{reason}")
+            continue
+
+        if device in parse_adb_reverse_list(reverse_result.stdout, device=device):
+            adb_reverse_mapped_devices.add(device)
+            continue
+
+        adb_reverse_mapped_devices.discard(device)
+        try:
+            reverse_set_result = adb_cmd(
+                ["-s", device, "reverse", f"tcp:{ADB_REVERSE_PORT}", f"tcp:{ADB_REVERSE_PORT}"],
+                timeout=10,
+            )
+        except Exception as exc:
+            startup_log(f"【ADB反向端口】映射失败：{device}，原因：{exc}")
+            continue
+
+        if reverse_set_result.returncode == 0:
+            adb_reverse_mapped_devices.add(device)
+            device_code = ADB_DEVICE_CODE_MAP.get(device, device)
+            startup_log(f"【ADB反向端口】映射成功/已修复：{device_code} ({device}) tcp:{ADB_REVERSE_PORT}")
+        else:
+            reason = (reverse_set_result.stderr or reverse_set_result.stdout or "未知错误").strip()
+            startup_log(f"【ADB反向端口】映射失败：{device}，原因：{reason}")
 
 
 def adb_reverse_monitor_loop():
@@ -431,38 +477,8 @@ def adb_reverse_monitor_loop():
                 if line.strip().endswith("\tdevice")
             ]
 
-            online_devices = set(devices)
-
-            # 读取当前真实 reverse 映射；按这个结果纠正内存状态。
-            reverse_result = adb_cmd(["reverse", "--list"], timeout=10)
-            existing_mapped_devices = parse_adb_reverse_list(reverse_result.stdout)
-
-            adb_reverse_mapped_devices.clear()
-            adb_reverse_mapped_devices.update(device for device in existing_mapped_devices if device in online_devices)
-
-            # 在线但没有映射的设备，每轮都尝试补映射。
-            for device in devices:
-                if device in adb_reverse_mapped_devices:
-                    continue
-
-                reverse_set_result = adb_cmd(
-                    [
-                        "-s", device,
-                        "reverse",
-                        f"tcp:{ADB_REVERSE_PORT}",
-                        f"tcp:{ADB_REVERSE_PORT}",
-                    ],
-                    timeout=10,
-                )
-
-                if reverse_set_result.returncode == 0:
-                    adb_reverse_mapped_devices.add(device)
-                    device_code = ADB_DEVICE_CODE_MAP.get(device, device)
-                    startup_log(f"【ADB反向端口】映射成功/已修复：{device_code} ({device}) tcp:{ADB_REVERSE_PORT}")
-                else:
-                    startup_log(
-                        f"【ADB反向端口】映射失败：{device}，原因：{reverse_set_result.stderr.strip()}"
-                    )
+            # 每台设备独立查询并修复，避免多设备时全局 reverse --list 失败。
+            refresh_adb_reverse_mappings(devices)
 
             log_current_mapped_adb_devices()
 
