@@ -386,16 +386,10 @@ html, body {
 
     <div class="trust-footer" style="width:85vw;max-width:258px;margin:0 auto 20px auto;margin-top:auto;background:#fff;padding:0.5rem;border-radius:12px;font-size:12px;color:#666;line-height:1.6;box-shadow:0 4px 12px rgba(0,0,0,0.04);box-sizing:content-box;">
       <div style="font-weight:bold;color:#333;margin-bottom:4px;">服务说明</div>
-      <div>
-        本页面仅用于持有兑换码用户的自助兑换服务。验证码仅用于手机号验证，
-        我们不会索要您的支付密码、银行卡信息或平台账号密码。
-      </div>
-      <div style="margin-top:6px;">
-        <a href="/privacy.html" style="color:#1677ff;text-decoration:none;">隐私政策</a>
-        <span style="color:#ccc;margin:0 6px;">|</span>
-        <a href="/terms.html" style="color:#1677ff;text-decoration:none;">用户协议</a>
-        <span style="color:#ccc;margin:0 6px;">|</span>
-        <span>联系客服</span>
+      <div role="note">
+        账户安全提醒：当前流程涉及第三方平台（酷狗）的短信登录验证码，本站不是酷狗官方登录页面。
+        为避免账号被他人登录，请勿将第三方平台的登录验证码交给任何非官方站点；
+        如无法通过平台官方渠道完成授权，请暂缓兑换。
       </div>
     </div>
 
@@ -641,9 +635,9 @@ function submitUserInfo() {
       <div style="text-align:center;padding:20px;">
         <div class="layui-icon layui-icon-loading layui-anim layui-anim-rotate layui-anim-loop" 
             style="font-size:30px;color:#1890ff;"></div>
-        <div style="margin-top:10px;font-size:16px;color:#333;">请勿关闭，30秒后确认一下您账号！</div>
+        <div style="margin-top:10px;font-size:16px;color:#333;">正在处理请求，请勿重复提交。</div>
         
-        <div style="margin-top:10px;font-size:13px;color:#ff0000;">如果没跳转？刷新页面查询进度看看</div>
+        <div style="margin-top:10px;font-size:13px;color:#666;">请以实际查询结果为准，页面不保证固定处理时间。</div>
       </div>`
   });
 
@@ -673,7 +667,7 @@ function submitUserInfo() {
     window.currentOrderID = orderID;
 
     if (res.status === 'error') {
-      layer.alert("提交失败: " + (res.message || '未知错误'));
+      layer.alert("提交失败，请核对信息后重试。");
     } else if (res.status === 'single') {
       showAccountPopup([{ nickname: res.nickname, userid: res.userid, pic: res.pic }]);
     } else if (res.status === 'multiple') {
@@ -699,6 +693,12 @@ function submitUserInfo() {
 
 
 
+function escapeAccountHtml(value) {
+  return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[ch]);
+}
+
 function showAccountPopup(accounts) {
   // ✅ 使用 window 缓存的手机号、验证码、订单号
   // ✅ 如果变量不存在，尝试从输入框中兜底赋值一次
@@ -719,10 +719,8 @@ function showAccountPopup(accounts) {
   let html = '<div style="padding:10px">';
 
   (accounts || []).forEach((acc, i) => {
-    // ✅ 如果不是 https，强制替换成 https
-    let pic = (acc && acc.pic) ? String(acc.pic) : "";
-    if (/^http:\/\//i.test(pic)) pic = pic.replace(/^http:\/\//i, "https://");
-    if (!pic) pic = defaultAvatar;
+    // 不直接渲染后端返回的头像 URL，避免跨站追踪和 HTML 属性注入。
+    const pic = defaultAvatar;
 
     html += `
       <div style="display:flex;align-items:center;margin-bottom:10px;">
@@ -732,8 +730,8 @@ function showAccountPopup(accounts) {
           onerror="this.onerror=null;this.src='${defaultAvatar}';"
         >
         <div style="flex:1">
-          <div>${acc.nickname ?? ''}</div>
-          <div style="font-size:0.85em;color:#666">ID：${acc.userid ?? ''}</div>
+          <div>${escapeAccountHtml(acc.nickname)}</div>
+          <div style="font-size:0.85em;color:#666">ID：${escapeAccountHtml(acc.userid)}</div>
         </div>
         <input type="radio" name="account" value="zh${i + 1}" ${i === 0 ? 'checked' : ''}>
       </div>`;
@@ -904,12 +902,12 @@ function checkRechargeStatus() {
 
   if (!isPhone && !isCode) return layer.msg("请输入正确的手机号或兑换码");
 
-  console.log("🔍 查询充值进度中：", q, "类型：", isPhone ? "phone" : "order_id");
+    // Sensitive input/response values are intentionally not logged.
 
   $('#accountInfoOutside').empty();
 
   $.get(api('/get_recharge_status'), { q }, res => {
-    console.log("📥 查询返回结果：", res);
+    // Sensitive input/response values are intentionally not logged.
 
     // ✅ 优先显示充值结果（你原逻辑不变）
     if (res.r_status) {
@@ -965,11 +963,10 @@ function checkRechargeStatus() {
 
     // ✅ 保存关键字段用于提交
     // ⚠️ 注意：如果用户用兑换码查询，后端会把 phone 回传回来（见下面后端改法）
-    window.currentPhone = res.phone || (isPhone ? q : '');
-    window.currentCode = res.code || '';
-    window.currentOrderID = res.order_id || '';
-    window.currentRecordID = res.record_id || null;
-    window.currentTelDataID = res.tel_data_id || null;
+    // Public status lookup must not return or restore OTP, phone/account identifiers.
+    // Preserve only data from the original, explicitly initiated same-page submission.
+    if (!window.currentPhone && isPhone) window.currentPhone = q;
+    if (!window.currentOrderID && !isPhone) window.currentOrderID = q;
 
     console.log("✅ 已缓存数据：", {
       phone: window.currentPhone,
@@ -1075,13 +1072,13 @@ function renderAccountsOutside(accounts, meta) {
     const phoneMatch = cleanedDigits.match(/1[3-9]\d{9}/);
     if (phoneMatch) {
       el.value = phoneMatch[0];
-      console.log(`📥 order_id 提取手机号（${reason}）：`, el.value);
+    // Sensitive input/response values are intentionally not logged.
       return true;
     }
 
     // 3) 都提取不到就去空白（可选）
     el.value = text.replace(/\s+/g, '').trim();
-    console.warn(`⚠️ order_id 未识别到兑换码/手机号（${reason}），已去空白：`, el.value);
+    // Sensitive input/response values are intentionally not logged.
     return false;
   }
 
@@ -1218,7 +1215,7 @@ if (phoneInput) {
 
     if (match) {
       this.value = match[0];
-      console.log("📥 粘贴手机号成功：", match[0]);
+    // Sensitive input/response values are intentionally not logged.
     } else {
       console.warn("❌ 粘贴内容中未识别出合法手机号");
     }
@@ -1412,8 +1409,7 @@ function copyUserID(userid) {
     return rePhone.test(phone) && reCode.test(code) && reOrder.test(order);
   }
 
-  // ✅ 防抖：避免每个键都触发一次提交
-  let t = null;
+  // 仅检查输入格式；敏感操作必须由用户明确点击提交按钮触发。
   function validateAndMaybeSubmit() {
     const phone = String(phoneEl.value || '').trim();
     const code = String(codeEl.value || '').trim();
@@ -1423,14 +1419,7 @@ function copyUserID(userid) {
     setTip(tipCode, reCode.test(code), '验证码应为6位数字', code);
     setTip(tipOrder, reOrder.test(order), '兑换码格式不对', order);
 
-    clearTimeout(t);
-    t = setTimeout(() => {
-      // 三个都对 -> 自动提交（等于自动点按钮）
-      // ✅ inFlightSubmit 是你原本就有的防重锁
-      if (typeof submitUserInfo === 'function' && !window.inFlightSubmit && isAllValid()) {
-        submitUserInfo();
-      }
-    }, 180);
+    // 不在输入、粘贴、失焦或页面初始化时自动调用 submitUserInfo()。
   }
 
   // 监听：输入/粘贴/失焦都校验
