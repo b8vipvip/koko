@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const path = require('node:path');
 
 const html = fs.readFileSync(path.join(__dirname, '../usrvip/index.html'), 'utf8');
-const start = html.indexOf('function kokoRechargeResultForDisplay(res) {');
+const start = html.indexOf('const KOKO_HISTORY_WAIT_LIMIT_MS = 8 * 60 * 1000;');
 const end = html.indexOf('(function bindOrderIdExtractorMobileSafe()', start);
 assert.ok(start > 0 && end > start, 'history query functions must exist');
 const script = html.slice(start, end);
