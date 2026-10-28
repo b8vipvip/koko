@@ -374,8 +374,13 @@ html, body {
   .koko-recharge-inline .koko-recharge-progress-card { margin:0; box-shadow:none; border:1px solid #cfe1f7; background:#f8fbff; }
   .koko-recharge-inline .koko-recharge-progress-track { height:11px; }
   .koko-recharge-inline .koko-recharge-progress-bar { height:11px; }
+  .koko-recharge-inline .koko-recharge-progress-text:empty { display:none; }
+  #rechargeStatus[hidden] { display:none !important; }
   .koko-submit-loading-layer .layui-layer-content { padding:0; border-radius:16px; }
   .layui-layer.koko-submit-loading-layer { max-width:calc(100vw - 24px); border-radius:16px; }
+  .koko-submit-loading-spinner { position:relative; width:50px; height:50px; margin:0 auto; display:flex; align-items:center; justify-content:center; }
+  .koko-submit-loading-spinner .koko-submit-loading-rotate { font-size:48px; color:#1890ff; line-height:1; }
+  .koko-submit-loading-countdown { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; line-height:1; color:#1264b8; font-variant-numeric:tabular-nums; pointer-events:none; }
   @media(max-width:360px) {
     .container { width:calc(100% - 22px); padding:12px 13px; }
     .trust-footer { width:calc(100% - 22px) !important; }
@@ -714,19 +719,46 @@ function submitUserInfo() {
     return;
   }
 
-  // —— loading弹层（不变） —— //
+  // Countdown is a presentation hint, not an API timeout or cancellation.
+  let loadingCountdownTimer = null;
+  let loadingCountdownStopped = false;
+  const countdownStartedAt = Date.now();
+  function updateLoadingCountdown(){
+    if (loadingCountdownStopped) return;
+    const el = document.getElementById('koko-submit-loading-countdown');
+    if (!el) return;
+    const remain = Math.max(0, 30 - Math.floor((Date.now() - countdownStartedAt) / 1000));
+    el.textContent = remain + 's';
+    if (remain === 0 && loadingCountdownTimer !== null) {
+      clearInterval(loadingCountdownTimer);
+      loadingCountdownTimer = null;
+    }
+  }
+  function stopLoadingCountdown(){
+    loadingCountdownStopped = true;
+    if (loadingCountdownTimer !== null) clearInterval(loadingCountdownTimer);
+    loadingCountdownTimer = null;
+  }
+
+  // Existing spinner only: countdown sits inside rotating icon.
   const loadingIndex = layer.open({
     type: 1, shade: 0.3, shadeClose: false, title: false, closeBtn: 0,
     area: ['min(88vw, 320px)', 'auto'], offset: 'auto', skin: 'koko-submit-loading-layer',
     content:`
       <div style="text-align:center;padding:20px;">
-        <div class="layui-icon layui-icon-loading layui-anim layui-anim-rotate layui-anim-loop" 
-            style="font-size:30px;color:#1890ff;"></div>
+        <div class="koko-submit-loading-spinner">
+          <div class="layui-icon layui-icon-loading layui-anim layui-anim-rotate layui-anim-loop koko-submit-loading-rotate" aria-hidden="true"></div>
+          <span id="koko-submit-loading-countdown" class="koko-submit-loading-countdown" aria-label="加载等待秒数">30s</span>
+        </div>
         <div style="margin-top:10px;font-size:16px;color:#333;font-weight:600;">正在查询可兑换账号</div>
         
         <div style="margin-top:10px;font-size:13px;color:#64748b;">完成后请核对账号并手动确认兑换</div>
       </div>`
   });
+
+  // The countdown does not change request lifecycle or timeout behavior.
+  updateLoadingCountdown();
+  loadingCountdownTimer = setInterval(updateLoadingCountdown, 250);
 
   // 幂等键（不变）
   const idem = genIdemKey();
@@ -746,6 +778,7 @@ function submitUserInfo() {
     return res;
   })
   .then(res => {
+    stopLoadingCountdown();
     layer.close(loadingIndex);
 
     window.currentRecordID = res.record_id;
@@ -768,10 +801,12 @@ function submitUserInfo() {
     }
   })
   .catch(() => {
+    stopLoadingCountdown();
     layer.close(loadingIndex);
     layer.alert("没跳转？点查询进度看看");
   })
   .finally(() => {
+    stopLoadingCountdown();
     // 无论成功/失败，最终释放锁 + 恢复按钮
     inFlightSubmit = false;
     submitBtns.prop('disabled', false).css('cursor', 'pointer');
@@ -1110,8 +1145,15 @@ function checkRechargeStatus() {
     if (querySequence !== window.kokoStatusQuerySequence) return;
     console.log("📥 查询返回结果：", res);
 
-    // 正式充值的 r_status 优先于近期提交状态，避免成功时显示“无新提交记录”。
+    // 后台明确结果优先；正式进行中的充值则恢复唯一的页面内进度卡片。
     if (kokoRenderFinishedRecharge(res, q)) return;
+    if (res && res.status !== 'accounts' && res.tel_data_id &&
+        typeof window.kokoRestoreQueriedRechargeProgress === 'function' &&
+        window.kokoRestoreQueriedRechargeProgress(res, q)) {
+      renderAccountsOutside(Array.isArray(res.accounts_24h) ? res.accounts_24h : [], res);
+      kokoStartHistoryRefresh(q);
+      return;
+    }
 
     const statusEl = document.getElementById('rechargeStatus');
     if (statusEl) statusEl.hidden = false;
@@ -1764,6 +1806,7 @@ function copyUserID(userid) {
   const FINAL_FAIL = ['失败', '已失败', '充值失败', '已拦截', '无效订单', '重复订单', '验证失效', '验证码失效', '验证错'];
   const FINAL_TIMEOUT = ['超时', '已超时'];
   let historyResultView = false;
+  let queriedProgressView = false;
   let statusTimer = null;
   let checkingNow = false;
 
@@ -1829,7 +1872,8 @@ function copyUserID(userid) {
   }
 
   function ensureStatusChecking(data){
-    if (historyResultView || !data || data.finalStatus) {
+    // A restored query has its own 30s result poll; avoid simultaneous polling.
+    if (historyResultView || queriedProgressView || !data || data.finalStatus) {
       stopStatusChecking();
       return;
     }
@@ -1915,7 +1959,7 @@ function copyUserID(userid) {
         : timedOut ? '充值超时，请联系客服' : '充值中';
     }
 
-    if (statusEl && root.contains(statusEl)) {
+    if (!queriedProgressView && statusEl && root.contains(statusEl)) {
       if (data.finalStatus) {
         statusEl.textContent = '充值结果：' + (data.finalResult || finalResultText(data.finalStatus));
       } else if (timedOut) {
@@ -1942,6 +1986,7 @@ function copyUserID(userid) {
   // Historical/terminal result view never displays the estimate bar.
   function hideInlineRechargeProgressForResult(res){
     historyResultView = true;
+    queriedProgressView = false;
     stopStatusChecking();
 
     const slot = document.getElementById('kokoRechargeInline');
@@ -1988,9 +2033,11 @@ function copyUserID(userid) {
     const root = slot.querySelector('[data-koko-recharge-progress="1"]');
     const statusEl = document.getElementById('rechargeStatus');
     const textRegion = root.querySelector('.koko-recharge-progress-text');
-    if (statusEl) statusEl.hidden = false;
-    // Move the real #rechargeStatus node, retaining the existing query-status updates.
-    if (statusEl && textRegion && statusEl.parentNode !== textRegion) {
+    if (statusEl) statusEl.hidden = queriedProgressView;
+    // For query recovery, keep this status node out of the progress card altogether.
+    if (statusEl && queriedProgressView && slot.contains(statusEl) && slot.parentNode) {
+      slot.parentNode.insertBefore(statusEl, slot);
+    } else if (!queriedProgressView && statusEl && textRegion && statusEl.parentNode !== textRegion) {
       textRegion.appendChild(statusEl);
     }
     if (scrollToProgress && statusEl) {
@@ -2005,11 +2052,52 @@ function copyUserID(userid) {
     }
   }
 
+  // Restore a verified in-flight tel_data record from server time (UTC+8).
+  // Do not reuse another order's cached code/phone/record IDs from localStorage.
+  window.kokoRestoreQueriedRechargeProgress = function(res, q){
+    const serverStart = typeof kokoRechargeTimeMs === 'function'
+      ? kokoRechargeTimeMs(res && res.recharge_time) : null;
+    if (!res || !res.tel_data_id || serverStart === null) return false;
+    if (serverStart > now() + 60000) return false;
+    const slot = document.getElementById('kokoRechargeInline');
+    const statusEl = document.getElementById('rechargeStatus');
+    if (!slot) return false;
+
+    // Move a previously inserted status node back before replacing card markup.
+    if (statusEl && slot.contains(statusEl) && slot.parentNode) {
+      slot.parentNode.insertBefore(statusEl, slot);
+    }
+    slot.innerHTML = '';
+    if (statusEl) {
+      statusEl.textContent = '';
+      statusEl.hidden = true;
+    }
+
+    const lookup = String(q || '').trim();
+    const restored = {
+      startAt: serverStart,
+      totalMs: TOTAL_MS,
+      updatedAt: now(),
+      tel_data_id: res.tel_data_id,
+      order_id: String(res.order_id || (/^1[3-9]\d{9}$/.test(lookup) ? '' : lookup)).trim(),
+      phone: String(res.phone || (/^1[3-9]\d{9}$/.test(lookup) ? lookup : '')).trim(),
+      finalStatus: '',
+      statusChecking: true
+    };
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(restored)); } catch(e) {}
+    historyResultView = false;
+    queriedProgressView = true;
+    stopStatusChecking();
+    showInlineRechargeProgress(false);
+    return !slot.hidden;
+  };
+
   // 保持现有正式充值记录保存与服务端状态轮询，改变的仅是展示位置。
   window.kokoSaveRechargeProgressState = function(extra){
     // A new, explicitly confirmed exchange replaces a previously opened history view.
     if (typeof window.kokoStopHistoryRefresh === 'function') window.kokoStopHistoryRefresh();
     historyResultView = false;
+    queriedProgressView = false;
     return saveProgress(Object.assign({statusChecking:true}, extra || {}));
   };
 

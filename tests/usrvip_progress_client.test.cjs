@@ -83,6 +83,7 @@ const window = {};
 vm.runInNewContext(script, {
   window, document, localStorage: storage, $, api: (url) => url,
   Date: { now: () => time }, Math, JSON,
+  kokoRechargeTimeMs: raw => raw === 'server-time' ? time - 90000 : null,
   setInterval: () => 1, clearInterval: () => {},
 });
 
@@ -143,4 +144,30 @@ window.kokoShowInlineRechargeProgress(true);
 assert.equal(slot.hidden, false);
 assert.equal(status.hidden, false);
 
-console.log('USRVIP simulated DOM: pending/timeout/final/switch to history/new submission passed');
+// An in-flight order found via public query must restore from its server timestamp,
+// not from an unrelated previously cached progress object.
+saved.set('koko_recharge_6min_progress_v1', JSON.stringify({
+  startAt: 1, order_id:'unrelated', code:'SHOULD_NOT_SURVIVE', tel_data_id:5,
+}));
+assert.equal(window.kokoRestoreQueriedRechargeProgress({
+  tel_data_id:187, order_id:'queried-order', phone:'13000000000',
+  recharge_time:'server-time'
+}, 'queried-order'), true);
+assert.equal(slot.hidden, false);
+assert.equal(status.hidden, true, 'query recovery has no duplicate rechargeStatus');
+assert.notEqual(status.parentNode, textRegion, 'status is removed from card DOM');
+assert.ok(!slot.innerHTML.includes('充值中，大概'));
+const reconstructed = JSON.parse(saved.get('koko_recharge_6min_progress_v1'));
+assert.equal(reconstructed.order_id, 'queried-order');
+assert.equal(reconstructed.tel_data_id, 187);
+assert.equal(reconstructed.startAt, time - 90000);
+assert.equal(Object.hasOwn(reconstructed, 'code'), false, 'never retain a stale OTP');
+
+window.kokoSaveRechargeProgressState({
+  startAt:time, order_id:'next-new-order', record_id:99, tel_data_id:999,
+  finalStatus:'', finalResult:'', finishedAt:null,
+});
+window.kokoShowInlineRechargeProgress(true);
+assert.equal(status.hidden, false, 'new confirmed exchange restores status message');
+assert.equal(status.parentNode, textRegion);
+console.log('USRVIP simulated DOM: submit/timeout/terminal/query-recovery/no-duplicate/new-confirmation passed');
