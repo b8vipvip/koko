@@ -141,9 +141,9 @@ class UsrvipInlineFlowTest(unittest.TestCase):
 
     def test_historical_terminal_result_has_badge_without_progress(self):
         self.assertIn("function kokoRechargeResultForDisplay(res)", self.page)
-        self.assertIn("if (kokoRenderFinishedRecharge(res)) return;", self.page)
+        self.assertIn("if (kokoRenderFinishedRecharge(res, q)) return;", self.page)
         self.assertIn("if (res.status === 'none') return;", self.page)
-        self.assertLess(self.page.index("if (kokoRenderFinishedRecharge(res)) return;"),
+        self.assertLess(self.page.index("if (kokoRenderFinishedRecharge(res, q)) return;"),
                         self.page.index("if (res.status === 'none') return;"))
         self.assertIn("window.kokoHideInlineRechargeProgress", self.page)
         self.assertIn("slot.hidden = true;", self.page)
