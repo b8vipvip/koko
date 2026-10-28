@@ -1034,8 +1034,11 @@ function checkRechargeStatus() {
   console.log("🔍 查询充值进度中：", q, "类型：", isPhone ? "phone" : "order_id");
 
   $('#accountInfoOutside').empty();
+  // Rapid consecutive searches must not let a late older response overwrite the latest one.
+  const querySequence = (window.kokoStatusQuerySequence = (window.kokoStatusQuerySequence || 0) + 1);
 
   $.get(api('/get_recharge_status'), { q }, res => {
+    if (querySequence !== window.kokoStatusQuerySequence) return;
     console.log("📥 查询返回结果：", res);
 
     // 正式充值的 r_status 优先于近期提交状态，避免成功时显示“无新提交记录”。
@@ -1684,15 +1687,19 @@ function copyUserID(userid) {
 
   const FINAL_SUCCESS = ['成功', '已成功', '充值成功', '手动成功'];
   const FINAL_FAIL = ['失败', '已失败', '充值失败', '已拦截', '无效订单', '重复订单', '验证失效', '验证码失效', '验证错'];
+  const FINAL_TIMEOUT = ['超时', '已超时'];
+  let historyResultView = false;
   let statusTimer = null;
   let checkingNow = false;
 
   function isFinalStatus(status){
-    return FINAL_SUCCESS.includes(status) || FINAL_FAIL.includes(status);
+    return FINAL_SUCCESS.includes(status) || FINAL_FAIL.includes(status) || FINAL_TIMEOUT.includes(status);
   }
 
   function finalResultText(status){
-    return FINAL_SUCCESS.includes(status) ? '充值成功' : '充值失败';
+    if (FINAL_SUCCESS.includes(status)) return '充值成功';
+    if (FINAL_TIMEOUT.includes(status)) return '充值超时';
+    return '充值失败';
   }
 
   function stopStatusChecking(){
@@ -1714,6 +1721,7 @@ function copyUserID(userid) {
 
     checkingNow = true;
     $.get(api('/get_recharge_status'), params, function(res){
+      if (historyResultView) return;
       const rStatus = res && res.r_status;
       if (!isFinalStatus(rStatus)) {
         saveProgress({statusChecking:true});
@@ -1728,14 +1736,18 @@ function copyUserID(userid) {
         finishedAt: now()
       });
       stopStatusChecking();
-      refreshAllProgress();
+      if (typeof window.kokoRenderFinishedRecharge === 'function') {
+        window.kokoRenderFinishedRecharge(res);
+      } else {
+        refreshAllProgress();
+      }
     }).always(function(){
       checkingNow = false;
     });
   }
 
   function ensureStatusChecking(data){
-    if (!data || data.finalStatus) {
+    if (historyResultView || !data || data.finalStatus) {
       stopStatusChecking();
       return;
     }
@@ -1845,8 +1857,41 @@ function copyUserID(userid) {
     });
   }
 
+  // Historical/terminal result view never displays the estimate bar.
+  function hideInlineRechargeProgressForResult(res){
+    historyResultView = true;
+    stopStatusChecking();
+
+    const slot = document.getElementById('kokoRechargeInline');
+    const statusEl = document.getElementById('rechargeStatus');
+    if (slot) {
+      // Restore the status node outside the card before clearing the progress markup.
+      if (statusEl && slot.contains(statusEl) && slot.parentNode) {
+        slot.parentNode.insertBefore(statusEl, slot);
+      }
+      slot.hidden = true;
+      slot.innerHTML = '';
+    }
+    if (statusEl) {
+      statusEl.textContent = '';
+      statusEl.hidden = true;
+    }
+
+    // Only clear stale browser progress if the queried terminal record is the same order.
+    // A historical lookup for a different order must not discard another in-flight task.
+    const saved = getProgress();
+    const returnedOrder = String((res && res.order_id) || '').trim();
+    if (saved && returnedOrder && String(saved.order_id || '') === returnedOrder) {
+      try { localStorage.removeItem(STORE_KEY); } catch (e) {}
+    }
+  }
+
+  window.kokoHideInlineRechargeProgress = hideInlineRechargeProgressForResult;
+
   // 唯一充值进度容器：始终显示在兑换表单下方，不创建任何进度弹窗。
   function showInlineRechargeProgress(scrollToProgress){
+    if (historyResultView && !scrollToProgress) return;
+    if (scrollToProgress) historyResultView = false;
     const data = getProgress();
     const slot = document.getElementById('kokoRechargeInline');
     if (!slot || !data || !data.startAt) return;
@@ -1861,6 +1906,7 @@ function copyUserID(userid) {
     const root = slot.querySelector('[data-koko-recharge-progress="1"]');
     const statusEl = document.getElementById('rechargeStatus');
     const textRegion = root.querySelector('.koko-recharge-progress-text');
+    if (statusEl) statusEl.hidden = false;
     // Move the real #rechargeStatus node, retaining the existing query-status updates.
     if (statusEl && textRegion && statusEl.parentNode !== textRegion) {
       textRegion.appendChild(statusEl);
@@ -1879,6 +1925,8 @@ function copyUserID(userid) {
 
   // 保持现有正式充值记录保存与服务端状态轮询，改变的仅是展示位置。
   window.kokoSaveRechargeProgressState = function(extra){
+    // A new, explicitly confirmed exchange replaces a previously opened history view.
+    historyResultView = false;
     return saveProgress(Object.assign({statusChecking:true}, extra || {}));
   };
 
@@ -1895,6 +1943,7 @@ function copyUserID(userid) {
     }
     if (!window.__kokoInlineRechargeTimer) {
       window.__kokoInlineRechargeTimer = setInterval(function(){
+        if (historyResultView) return;
         const data = getProgress();
         if (!data || !data.startAt) return;
         refreshAllProgress();
