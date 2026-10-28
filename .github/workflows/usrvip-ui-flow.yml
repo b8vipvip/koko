@@ -1,0 +1,31 @@
+name: USRVIP front-end UI flow
+
+on:
+  pull_request:
+    paths:
+      - 'usrvip/index.html'
+      - 'tests/test_usrvip_inline_flow.py'
+      - '.github/workflows/usrvip-ui-flow.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'usrvip/index.html'
+      - 'tests/test_usrvip_inline_flow.py'
+
+permissions:
+  contents: read
+
+jobs:
+  frontend-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check inline JavaScript syntax and UI sequencing
+        run: python3 -m unittest discover -s tests -p 'test_usrvip_inline_flow.py' -v
