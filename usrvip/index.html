@@ -332,7 +332,7 @@ html, body {
 <style>
   html, body { background:#f2f6fb; font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
   /* Screen-height-aware density; scrolling remains available when results/keyboard expand. */
-  .main-wrapper { height:100vh; height:100dvh; min-height:0; box-sizing:border-box; padding:clamp(8px, 1.7dvh, 22px) 0 8px; gap:clamp(6px, 1dvh, 12px); overflow-x:hidden; overflow-y:auto; overscroll-behavior-y:contain; align-items:center; }
+  .main-wrapper { height:100vh; height:100dvh; min-height:0; box-sizing:border-box; padding:clamp(8px, 1.7dvh, 22px) 0 8px; gap:clamp(12px, 2dvh, 22px); overflow-x:hidden; overflow-y:auto; overscroll-behavior-y:contain; align-items:center; }
   .container { width:calc(100% - 28px); max-width:420px; box-sizing:border-box; flex:0 0 auto; padding:clamp(12px, 2dvh, 20px) clamp(15px, 4vw, 22px); border:1px solid #e6edf5; border-radius:17px; box-shadow:0 12px 40px rgba(30,57,93,.07); }
   /* Restore the original single-line scrolling notice instead of a static blue banner. */
   .marquee-container { padding:3px 0; margin-bottom:11px; box-sizing:border-box; border-radius:0; background:transparent; overflow:hidden; white-space:nowrap; }
@@ -356,7 +356,8 @@ html, body {
   #presetList { left:74px; top:38px; margin-left:0; max-width:calc(100% - 74px); box-sizing:border-box; }
   #accountInfoOutsideWrapper { padding:0 16px; box-sizing:border-box; }
   .account-box { box-sizing:border-box; max-width:420px; width:100%; padding:16px; border:1px solid #e6edf5; }
-  .trust-footer { width:calc(100% - 28px) !important; max-width:420px !important; flex:0 0 auto; padding:clamp(9px, 1.4dvh, 13px) 15px !important; box-sizing:border-box !important; margin:0 auto 6px !important; border:1px solid #e6edf5; border-radius:12px !important; line-height:1.48 !important; font-size:11.5px !important; }
+  /* Push the service card to the bottom when there is spare room; retain a gap and normal scrolling when space is tight. */
+  .trust-footer { width:calc(100% - 28px) !important; max-width:420px !important; flex:0 0 auto; padding:clamp(9px, 1.4dvh, 13px) 15px !important; box-sizing:border-box !important; margin:auto auto 6px !important; background:#fff; color:#666; box-shadow:0 4px 12px rgba(0,0,0,.04); border:1px solid #e6edf5; border-radius:12px !important; line-height:1.48 !important; font-size:11.5px !important; }
   .trust-footer > div { overflow-wrap:anywhere; }
   .trust-footer > div[style*="margin-top:6px"] { margin-top:4px !important; }
   .koko-recharge-inline[hidden] { display:none !important; }
@@ -374,7 +375,7 @@ html, body {
   }
   /* Tighten only vertical spacing on short phone displays; keep text legible. */
   @media(max-height:700px) {
-    .main-wrapper { padding-top:9px; padding-bottom:5px; gap:7px; }
+    .main-wrapper { padding-top:9px; padding-bottom:5px; gap:12px; }
     .container { padding-top:12px; padding-bottom:12px; }
     .marquee-container { padding:1px 0; margin-bottom:8px; }
     .form-group { margin-bottom:8px; }
@@ -384,7 +385,7 @@ html, body {
     .trust-footer { padding:9px 13px !important; margin-bottom:3px !important; line-height:1.4 !important; }
   }
   @media(max-height:590px) {
-    .main-wrapper { padding-top:5px; padding-bottom:3px; gap:5px; }
+    .main-wrapper { padding-top:5px; padding-bottom:3px; gap:10px; }
     .container { padding-top:9px; padding-bottom:9px; }
     .marquee-container { margin-bottom:5px; }
     .form-group { margin-bottom:6px; }
@@ -455,7 +456,7 @@ html, body {
       <div id="accountInfoOutside" class="account-box"></div>
     </div>
 
-    <div class="trust-footer" style="width:85vw;max-width:258px;margin:0 auto 20px auto;margin-top:auto;background:#fff;padding:0.5rem;border-radius:12px;font-size:12px;color:#666;line-height:1.6;box-shadow:0 4px 12px rgba(0,0,0,0.04);box-sizing:content-box;">
+    <div class="trust-footer">
       <div style="font-weight:bold;color:#333;margin-bottom:4px;">服务说明</div>
       <div>
         此页面提供第三方自助兑换服务，并非酷狗官方网站。
