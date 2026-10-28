@@ -395,6 +395,19 @@ html, body {
 
   </div>
   <script>
+(function clearLegacyPersistentRechargeData() {
+  // Upgrade cleanup: older releases placed phone and order IDs in localStorage keys.
+  // Clear only this site's legacy recharge keys, never unrelated site data.
+  try {
+    const store = window.localStorage;
+    for (let i = store.length - 1; i >= 0; i--) {
+      const key = store.key(i);
+      if (key && key.indexOf('koko_recharge_') === 0) {
+        store.removeItem(key);
+      }
+    }
+  } catch (_) {}
+})();
 const API_BASE = "";
 
 function api(path) {
