@@ -352,10 +352,13 @@ html, body {
   .btn2 { background:#136c46 !important; }
   .btn1:disabled { opacity:.6; cursor:not-allowed !important; }
   .section-divider { margin:clamp(10px, 1.7dvh, 16px) 0; border-top:1px solid #e8eef5; }
-  #rechargeStatus, #rechargeResult { line-height:1.55; overflow-wrap:anywhere; }
+  #rechargeStatus { line-height:1.6; overflow-wrap:anywhere; }
+  .koko-recharge-progress-text #rechargeStatus { margin:0; font-size:13px; }
+  .koko-recharge-progress-countdown { color:#ed8a11; font-weight:650; text-align:right; }
+  .koko-recharge-progress-countdown.is-timeout { color:#d44b39; }
   #presetList { left:74px; top:38px; margin-left:0; max-width:calc(100% - 74px); box-sizing:border-box; }
-  #accountInfoOutsideWrapper { padding:0 16px; box-sizing:border-box; }
-  .account-box { box-sizing:border-box; max-width:420px; width:100%; padding:16px; border:1px solid #e6edf5; }
+  #accountInfoOutsideWrapper { padding:0; margin-top:12px; box-sizing:border-box; width:100%; }
+  .account-box { box-sizing:border-box; max-width:420px; width:100%; padding:12px 14px; border:1px solid #e6edf5; box-shadow:none; }
   /* Push the service card to the bottom when there is spare room; retain a gap and normal scrolling when space is tight. */
   .trust-footer { width:calc(100% - 28px) !important; max-width:420px !important; flex:0 0 auto; padding:clamp(9px, 1.4dvh, 13px) 15px !important; box-sizing:border-box !important; margin:auto auto 6px !important; background:#fff; color:#666; box-shadow:0 4px 12px rgba(0,0,0,.04); border:1px solid #e6edf5; border-radius:12px !important; line-height:1.48 !important; font-size:11.5px !important; }
   .trust-footer > div { overflow-wrap:anywhere; }
@@ -446,15 +449,15 @@ html, body {
     <button type="button" class="btn2" onclick="checkRechargeStatus()" style="background: #0d6e02">查询进度</button>
     
 
+    <!-- 查询进度时在此显示；正式充值后移动到进度卡片内部，防止两处重复。 -->
     <div id="rechargeStatus"></div>
-    <div id="rechargeResult"></div>
-    <!-- 用户确认账号且正式 /api 创建充值任务之后，才显示唯一的页面内进度区域 -->
+    <!-- 只有用户确认账号并成功创建正式充值任务才显示进度条 -->
     <section id="kokoRechargeInline" class="koko-recharge-inline" hidden aria-live="polite" aria-label="兑换进度"></section>
-  </div>
-<!-- ✅ 账号信息展示区域（包裹在外层中） -->
+    <!-- 充值信息保持在页面内进度卡片正下方；手动查询时也在此显示 -->
     <div id="accountInfoOutsideWrapper">
       <div id="accountInfoOutside" class="account-box"></div>
     </div>
+  </div>
 
     <div class="trust-footer">
       <div style="font-weight:bold;color:#333;margin-bottom:4px;">服务说明</div>
@@ -772,6 +775,8 @@ function submitUserInfo() {
 
 
 function showAccountPopup(accounts) {
+  // 仅保存此页面的账号选项，用于用户确认后在进度条下方展示所选账号。
+  window.kokoAccountChoices = Array.isArray(accounts) ? accounts.slice() : [];
   // ✅ 使用 window 缓存的手机号、验证码、订单号
   // ✅ 如果变量不存在，尝试从输入框中兜底赋值一次
   window.currentPhone = window.currentPhone || $('#phone').val().trim();
@@ -939,6 +944,16 @@ function submitRecharge() {
           if (typeof window.kokoShowInlineRechargeProgress === 'function') {
             window.kokoShowInlineRechargeProgress(true);
           }
+          // 使用刚刚手动确认的账号，不需要再次提交或更改任何后端参数。
+          const choices = window.kokoAccountChoices || [];
+          const selectedIndex = /^zh[1-9]\d*$/.test(zhanghu) ? Number(zhanghu.slice(2)) - 1 : -1;
+          const selectedAccount = choices[selectedIndex];
+          if (selectedAccount) {
+            renderAccountsOutside([selectedAccount], {
+              show_label: '兑换码',
+              show_value: orderID
+            });
+          }
         },
 
         error: () => {
@@ -983,42 +998,28 @@ function checkRechargeStatus() {
   $.get(api('/get_recharge_status'), { q }, res => {
     console.log("📥 查询返回结果：", res);
 
-    // ✅ 优先显示充值结果（你原逻辑不变）
-    if (res.r_status) {
-      const chargingList = ["等待", "准备登录", "webdl", "appdl", "登录成功"];
-      const successList = ["充值成功", "成功","已成功","手动成功"];
-      const failList = ["失败", "已拦截", "无效订单", "重复订单"];
-      const manualList = ["需手动", "卡了", "超时", "异常", "正在充值","充值中","无元素","滑块验证"];
-      const yzmList = ["验证失效","验证码失效","验证错"];
+    // 单一充值状态信息：有正式进度条时该节点会被移入卡片，避免重复。
+    const chargingList = ["等待", "准备登录", "webdl", "appdl", "登录成功"];
+    const successList = ["充值成功", "成功", "已成功", "手动成功"];
+    const failList = ["失败", "已失败", "充值失败", "已拦截", "无效订单", "重复订单"];
+    const manualList = ["需手动", "卡了", "超时", "异常", "正在充值", "充值中", "无元素", "滑块验证"];
+    const yzmList = ["验证失效", "验证码失效", "验证错"];
+    const statusEl = $('#rechargeStatus');
 
-      if (chargingList.includes(res.r_status)) {
-        const minutes = res.elapsed_minutes || 0;
-        $('#rechargeStatus').html(
-            '<span style="color: black;">充值进度：</span>' +
-            '<span style="color: #1890ff;">充值中，大概' +
-            '<span style="color: red; font-weight: bold; font-size: 18px;">6分钟</span>' +
-            '后到账，如未到账可联系客服。</span>'
-        );
-
-        $('#rechargeResult').html('<span style="color: black;">充值结果：</span><span style="color: orange;">充值中(已提交：' + minutes + '分钟)</span>');
-      } else if (successList.includes(res.r_status)) {
-        $('#rechargeStatus').html('<span style="color: black;">充值进度：</span><span style="color: #1890ff;">已结束</span>');
-        $('#rechargeResult').html('<span style="color: black;">充值结果：</span><span style="color: green;">充值成功，您账号重新登陆一次即可，有问题请联系客服</span>');
-      } else if (failList.includes(res.r_status)) {
-        $('#rechargeStatus').html('<span style="color: black;">充值进度：</span><span style="color: #1890ff;">已结束</span>');
-        $('#rechargeResult').html('<span style="color: black;">充值结果：</span><span style="color: red;">充值失败，请联系客服</span>');
-      } else if (yzmList.includes(res.r_status)) {
-        $('#rechargeStatus').html('<span style="color: black;">充值进度：</span><span style="color: #1890ff;">已结束</span>');
-        $('#rechargeResult').html('<span style="color: black;">充值结果：</span><span style="color: red;">验证码失效了，请重新提交</span>');
-      } else if (manualList.includes(res.r_status)) {
-        $('#rechargeStatus').html('<span style="color: black;">充值进度：</span><span style="color: #1890ff;">客服正在充值中，请多等2分钟！</span>');
-        $('#rechargeResult').html('<span style="color: black;">充值结果：</span><span style="color: orange;">充值中(已提交：' + res.elapsed_minutes + '分钟)</span>');
-      } else {
-        $('#rechargeStatus').html('<span style="color: black;">充值进度：</span><span style="color: #1890ff;">当前暂无充值记录</span>');
-        $('#rechargeResult').html('<span style="color: black;">充值结果：</span><span style="color: black;">当前暂无充值记录</span>');
-      }
+    if (successList.includes(res.r_status)) {
+      statusEl.text('充值成功，您账号重新登录一次即可，有问题请联系客服');
+    } else if (failList.includes(res.r_status)) {
+      statusEl.text('充值失败，请联系客服');
+    } else if (yzmList.includes(res.r_status)) {
+      statusEl.text('验证码失效了，请重新提交');
+    } else if (chargingList.includes(res.r_status) || manualList.includes(res.r_status)) {
+      statusEl.html(
+        '<span style="color:#1890ff;">充值中，大概' +
+        '<span style="color:#ff4d4f;font-weight:bold;">6分钟</span>' +
+        '后到账，如未到账可联系客服。</span>'
+      );
     } else {
-      $('#rechargeResult').html('<span style="color: black;">充值结果：</span><span style="color: black;">当前暂无充值记录</span>');
+      statusEl.text('当前暂无充值记录');
     }
 
     // ✅ 渲染账号信息（如有）
@@ -1606,6 +1607,8 @@ function copyUserID(userid) {
 <script>
 (function(){
   const TOTAL_MS = 6 * 60 * 1000;
+  // Frontend-only waiting-time warning; it never changes or cancels the backend task.
+  const DISPLAY_TIMEOUT_MS = 8 * 60 * 1000;
   const STORE_KEY = 'koko_recharge_6min_progress_v1';
   const PATCH_FLAG = '__kokoRecharge6MinProgressInstalled';
 
@@ -1643,8 +1646,8 @@ function copyUserID(userid) {
     return Math.min(95, Math.max(1, percent));
   }
 
-  const FINAL_SUCCESS = ['成功', '已成功'];
-  const FINAL_FAIL = ['失败', '已失败'];
+  const FINAL_SUCCESS = ['成功', '已成功', '充值成功', '手动成功'];
+  const FINAL_FAIL = ['失败', '已失败', '充值失败', '已拦截', '无效订单', '重复订单', '验证失效', '验证码失效', '验证错'];
   let statusTimer = null;
   let checkingNow = false;
 
@@ -1729,27 +1732,11 @@ function copyUserID(userid) {
     }
   }
 
-  function getAccountInfoHtml(){
-    const el = document.getElementById('accountInfoOutside');
-    if (!el) return '';
-    const html = el.outerHTML || el.innerHTML || '';
-    if (!html.trim()) return '';
-    return `<div class="koko-recharge-account-copy">${html}</div>`;
-  }
-
-  function defaultText(){
-    return `预计处理时间约 6 分钟。进度百分比为时间估算，仅在后台确认完成后显示最终结果。`;
-  }
-
-  function createProgressHtml(opts){
-    opts = opts || {};
-    const text = opts.text || defaultText();
-    const accountHtml = opts.accountHtml ? getAccountInfoHtml() : '';
-    const title = opts.title || '充值进度';
+  function createProgressHtml(){
     return `
       <div class="koko-recharge-progress-card" data-koko-recharge-progress="1">
         <div class="koko-recharge-progress-title">
-          <span>${title}</span>
+          <span>充值进度（预计）</span>
           <span class="koko-recharge-progress-percent" aria-label="预计处理进度">1%</span>
         </div>
         <div class="koko-recharge-progress-track">
@@ -1757,63 +1744,60 @@ function copyUserID(userid) {
         </div>
         <div class="koko-recharge-progress-meta">
           <span class="koko-recharge-progress-elapsed">已提交：0分钟</span>
-          <span class="koko-recharge-progress-countdown">剩余：6:00</span>
+          <span class="koko-recharge-progress-countdown">充值中</span>
         </div>
-        <div class="koko-recharge-progress-text">${text}</div>
-        <div class="koko-recharge-progress-tip">
-          任务已提交，处理状态以后台查询结果为准。可以返回本页面查询进度。
-        </div>
-        ${accountHtml}
+        <!-- #rechargeStatus is moved into this region, rather than copied. -->
+        <div class="koko-recharge-progress-text"></div>
       </div>
     `;
+  }
+
+  function defaultRechargeStatus(){
+    return '<span style="color:#1890ff;">充值中，大概' +
+      '<span style="color:#ff4d4f;font-weight:bold;">6分钟</span>' +
+      '后到账，如未到账可联系客服。</span>';
   }
 
   function updateProgressDom(root, data){
     if (!root || !data || !data.startAt) return;
 
     const elapsed = Math.max(0, now() - data.startAt);
-    const remain = Math.max(0, TOTAL_MS - elapsed);
+    const timedOut = elapsed >= DISPLAY_TIMEOUT_MS && !data.finalStatus;
     const percent = calcPercent(data);
-    const percentText = Math.round(percent) + '%';
-
     const bar = root.querySelector('.koko-recharge-progress-bar');
     const pct = root.querySelector('.koko-recharge-progress-percent');
     const elapsedEl = root.querySelector('.koko-recharge-progress-elapsed');
     const countdownEl = root.querySelector('.koko-recharge-progress-countdown');
-    const textEl = root.querySelector('.koko-recharge-progress-text');
+    const statusEl = document.getElementById('rechargeStatus');
 
     if (bar) bar.style.width = percent + '%';
-    if (pct) pct.textContent = percentText;
+    if (pct) pct.textContent = Math.round(percent) + '%';
 
-    const elapsedMin = Math.max(0, Math.floor(elapsed / 60000));
-    if (elapsedEl) elapsedEl.textContent = `已提交：${elapsedMin}分钟`;
+    if (elapsedEl) {
+      elapsedEl.textContent = '已提交：' + Math.floor(elapsed / 60000) + '分钟';
+    }
 
     if (countdownEl) {
-      if (data.finalStatus) countdownEl.textContent = '已完成';
-      else countdownEl.textContent = remain > 0 ? `剩余：${formatRemain(remain)}` : '等待最终结果';
+      countdownEl.classList.toggle('is-timeout', timedOut);
+      // Left side already shows elapsed minutes, so don't repeat them here.
+      countdownEl.textContent = data.finalStatus
+        ? finalResultText(data.finalStatus)
+        : timedOut ? '充值超时，请联系客服' : '充值中';
     }
 
-    if (textEl) {
+    if (statusEl && root.contains(statusEl)) {
       if (data.finalStatus) {
-        textEl.innerHTML = `充值结果：<span class="koko-recharge-progress-warn">${data.finalResult || finalResultText(data.finalStatus)}</span>`;
-      } else if (percent >= 95) {
-        textEl.innerHTML = '充值处理中，请稍候...';
+        statusEl.textContent = '充值结果：' + (data.finalResult || finalResultText(data.finalStatus));
+      } else if (timedOut) {
+        statusEl.textContent = '已等待超过8分钟，请联系客服核实。后台任务可能仍在处理。';
+      } else if (!statusEl.textContent.trim() || statusEl.dataset.kokoTimedOut === '1') {
+        statusEl.innerHTML = defaultRechargeStatus();
       }
+      statusEl.dataset.kokoTimedOut = timedOut ? '1' : '0';
     }
 
+    // An 8-minute display timeout is not a backend terminal state: keep polling.
     ensureStatusChecking(data);
-  }
-
-  function mountProgressInElement(el, title, text){
-    if (!el) return;
-    const data = saveProgress({});
-    el.innerHTML = createProgressHtml({
-      title: title || '充值进度',
-      text: text || defaultText(),
-      accountHtml: false
-    });
-    const root = el.querySelector('[data-koko-recharge-progress="1"]');
-    updateProgressDom(root, data);
   }
 
   function refreshAllProgress(){
@@ -1835,14 +1819,20 @@ function copyUserID(userid) {
 
     slot.hidden = false;
     if (!slot.querySelector('[data-koko-recharge-progress="1"]')) {
-      slot.innerHTML = createProgressHtml({
-        title: '充值进度（预计）',
-        text: defaultText(),
-        accountHtml: false
-      });
+      slot.innerHTML = createProgressHtml();
     }
 
     const root = slot.querySelector('[data-koko-recharge-progress="1"]');
+    const statusEl = document.getElementById('rechargeStatus');
+    const textRegion = root.querySelector('.koko-recharge-progress-text');
+    // Move the real #rechargeStatus node, retaining the existing query-status updates.
+    if (statusEl && textRegion && statusEl.parentNode !== textRegion) {
+      textRegion.appendChild(statusEl);
+    }
+    if (scrollToProgress && statusEl) {
+      statusEl.innerHTML = defaultRechargeStatus();
+      delete statusEl.dataset.kokoTimedOut;
+    }
     updateProgressDom(root, data);
     ensureStatusChecking(data);
 

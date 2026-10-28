@@ -5,6 +5,7 @@ on:
     paths:
       - 'usrvip/index.html'
       - 'tests/test_usrvip_inline_flow.py'
+      - 'tests/usrvip_progress_client.test.cjs'
       - '.github/workflows/usrvip-ui-flow.yml'
   push:
     branches: [main]
@@ -28,4 +29,6 @@ jobs:
         with:
           node-version: '22'
       - name: Check inline JavaScript syntax and UI sequencing
-        run: python3 -m unittest discover -s tests -p 'test_usrvip_inline_flow.py' -v
+        run: |
+          python3 -m unittest discover -s tests -p 'test_usrvip_inline_flow.py' -v
+          node tests/usrvip_progress_client.test.cjs

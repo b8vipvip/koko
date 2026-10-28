@@ -113,6 +113,32 @@ class UsrvipInlineFlowTest(unittest.TestCase):
         self.assertLess(saved, rendered)
         self.assertIn("if (typeof window.kokoShowInlineRechargeProgress", confirm)
 
+    def test_account_info_directly_below_progress(self):
+        self.assertEqual(self.page.count('id="rechargeStatus"'), 1)
+        self.assertNotIn('id="rechargeResult"', self.page)
+        markup = self.page.split('<div id="rechargeStatus"></div>', 1)[1].split(
+            '<div class="trust-footer">', 1
+        )[0]
+        self.assertLess(markup.index('id="kokoRechargeInline"'),
+                        markup.index('id="accountInfoOutsideWrapper"'))
+        confirmation = self.page.split("function submitRecharge()", 1)[1].split(
+            "function checkRechargeStatus()", 1
+        )[0]
+        self.assertLess(confirmation.index('window.kokoShowInlineRechargeProgress(true)'),
+                        confirmation.index('renderAccountsOutside([selectedAccount]'))
+        self.assertIn('window.kokoAccountChoices = Array.isArray(accounts)', self.page)
+
+    def test_single_status_and_eight_minute_warning(self):
+        self.assertNotIn('$("#rechargeResult")', self.page)
+        self.assertNotIn("$('#rechargeResult')", self.page)
+        self.assertIn("textRegion.appendChild(statusEl)", self.page)
+        self.assertNotIn('class="koko-recharge-progress-tip"', self.page)
+        self.assertIn("const DISPLAY_TIMEOUT_MS = 8 * 60 * 1000", self.page)
+        self.assertIn("timedOut = elapsed >= DISPLAY_TIMEOUT_MS && !data.finalStatus", self.page)
+        self.assertIn("充值超时，请联系客服", self.page)
+        self.assertIn("后台任务可能仍在处理", self.page)
+        self.assertIn("充值中'", self.page)
+
     def test_loading_is_spinner_not_progress_bar(self):
         submit = self.page.split("function submitUserInfo()", 1)[1].split(
             "function showAccountPopup(", 1
