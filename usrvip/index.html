@@ -653,7 +653,7 @@ function submitUserInfo() {
   .then(async r => {
     const res = await r.json().catch(() => ({}));
     if (!r.ok) {
-      console.error('[submitUserInfo] submit failed', r.status, res);
+      console.error('[submitUserInfo] submit failed with HTTP status', r.status);
       throw new Error(res.message || res.msg || ('提交失败，HTTP ' + r.status));
     }
     return res;
@@ -968,13 +968,7 @@ function checkRechargeStatus() {
     if (!window.currentPhone && isPhone) window.currentPhone = q;
     if (!window.currentOrderID && !isPhone) window.currentOrderID = q;
 
-    console.log("✅ 已缓存数据：", {
-      phone: window.currentPhone,
-      code: window.currentCode,
-      orderID: window.currentOrderID,
-      recordID: window.currentRecordID,
-      telDataID: window.currentTelDataID
-    });
+    // Never log OTP, phone, order, or record metadata.
 
     if (res.status === 'accounts' && res.accounts && res.accounts.length) {
       showAccountPopup(res.accounts); // 拉起账号选择
@@ -1001,11 +995,11 @@ function renderAccountsOutside(accounts, meta) {
     if (showLabel && showValue) {
       topInfo += `
         <div style="margin-top:3px;color:#333;font-size:14px;">
-          ${showLabel}：
+          ${escapeAccountHtml(showLabel)}：
           ${
             isManualRecharge
-              ? `<span style="color:#fa541c;font-weight:600;cursor:default;">${showValue}</span>`
-              : `<span style="color:#1677ff;cursor:pointer;" onclick="copyToClipboard('${showValue}')">${showValue}</span>`
+              ? `<span style="color:#fa541c;font-weight:600;">${escapeAccountHtml(showValue)}</span>`
+              : `<span style="color:#1677ff;">${escapeAccountHtml(showValue)}</span>`
           }
         </div>`;
     }
@@ -1013,13 +1007,13 @@ function renderAccountsOutside(accounts, meta) {
   if (vipTerm) {
     topInfo += `
       <div style="margin-top:3px;color:#333;font-size:14px;">
-        会员规格：<span style="color:#fa8c16;font-weight:600;">${vipTerm}</span>
+        会员规格：<span style="color:#fa8c16;font-weight:600;">${escapeAccountHtml(vipTerm)}</span>
       </div>`;
   }
   if (rechargeTime) {
   topInfo += `
     <div style="margin-top:6px;color:#333;font-size:14px;">
-      充值时间：<span style="color:#555;">${rechargeTime}</span>
+      充值时间：<span style="color:#555;">${escapeAccountHtml(rechargeTime)}</span>
     </div>`;
 }
   
@@ -1038,10 +1032,9 @@ function renderAccountsOutside(accounts, meta) {
   accounts.forEach((acc, i) => {
     html += `
       <div style="display:flex;align-items:center;margin-top:10px;margin-bottom:10px;">
-        <img src="${acc.pic}" style="width:50px;height:50px;border-radius:6px;margin-right:10px;">
         <div style="flex:1">
-          <div>昵称：${acc.nickname}</div>
-          <div style="font-size:0.85em;color:#666;cursor:pointer;" onclick="copyToClipboard('${acc.userid}')">ID：${acc.userid}</div>
+          <div>昵称：${escapeAccountHtml(acc.nickname)}</div>
+          <div style="font-size:0.85em;color:#666;">ID：${escapeAccountHtml(acc.userid)}</div>
         </div>
       </div>`;
   });
@@ -1063,7 +1056,7 @@ function renderAccountsOutside(accounts, meta) {
     const codeMatch = text.match(codeRe);
     if (codeMatch) {
       el.value = codeMatch[0];
-      console.log(`📥 order_id 提取兑换码（${reason}）：`, el.value);
+      // Do not log redemption codes.
       return true;
     }
 
@@ -1255,7 +1248,7 @@ bindNoSpaceSanitizer('query_phone');
   const sync = (reason) => {
     const v = String(orderIdInput.value || '').replace(/\s+/g, '').trim();
     queryInput.value = v;
-    console.log(`✅ query_phone 同步成功（${reason}）：`, v);
+    // Do not log query data.
   };
 
   orderIdInput.addEventListener('input', () => sync('input'));
@@ -1477,7 +1470,7 @@ function copyUserID(userid) {
 
   function getHistory(taskKey) {
     try {
-      const arr = JSON.parse(localStorage.getItem(STORE_PREFIX + taskKey) || '[]');
+      const arr = JSON.parse(sessionStorage.getItem(STORE_PREFIX + taskKey) || '[]');
       return Array.isArray(arr) ? arr.filter(x => Number.isFinite(x) && x > 300 && x < 600000) : [];
     } catch (e) {
       return [];
@@ -1491,7 +1484,7 @@ function copyUserID(userid) {
     arr.push(ms);
 
     while (arr.length > 50) arr.shift();
-    localStorage.setItem(STORE_PREFIX + taskKey, JSON.stringify(arr));
+    sessionStorage.setItem(STORE_PREFIX + taskKey, JSON.stringify(arr));
   }
 
   function avgDuration(taskKey, fallbackMs) {
@@ -1919,13 +1912,13 @@ function copyUserID(userid) {
     if (!data.startAt) data.startAt = now();
     data.totalMs = TOTAL_MS;
     data.updatedAt = now();
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch(e){}
+    try { sessionStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch(e){}
     return data;
   }
 
   function getProgress(){
     try {
-      const data = JSON.parse(localStorage.getItem(STORE_KEY) || '{}');
+      const data = JSON.parse(sessionStorage.getItem(STORE_KEY) || '{}');
       if (!data || !data.startAt) return null;
       return data;
     } catch(e){
@@ -2548,13 +2541,13 @@ function copyUserID(userid) {
 
     try {
 
-      localStorage.setItem(key, ts);
+      sessionStorage.setItem(key, ts);
 
-      localStorage.setItem('koko_recharge_last_key_v2', key);
+      sessionStorage.setItem('koko_recharge_last_key_v2', key);
 
-      localStorage.setItem('koko_recharge_last_ts_v2', ts);
+      sessionStorage.setItem('koko_recharge_last_ts_v2', ts);
 
-      console.log('[KOKO_PROGRESS_FIX] saved submit time', key, ts);
+      // Do not log sensitive storage keys.
 
     } catch (e) {}
 
@@ -2574,7 +2567,7 @@ function copyUserID(userid) {
 
       if (phone && orderID) {
 
-        var v = localStorage.getItem(progressKey(phone, orderID));
+        var v = sessionStorage.getItem(progressKey(phone, orderID));
 
         if (v && /^\d+$/.test(v)) return parseInt(v, 10);
 
@@ -2582,7 +2575,7 @@ function copyUserID(userid) {
 
 
 
-      var last = localStorage.getItem('koko_recharge_last_ts_v2');
+      var last = sessionStorage.getItem('koko_recharge_last_ts_v2');
 
       if (last && /^\d+$/.test(last)) return parseInt(last, 10);
 
@@ -2973,7 +2966,7 @@ function copyUserID(userid) {
 
     try {
       if (!ts) {
-        var v = localStorage.getItem('koko_recharge_last_ts_v2');
+        var v = sessionStorage.getItem('koko_recharge_last_ts_v2');
         if (v && /^\d+$/.test(v)) ts = parseInt(v, 10);
       }
     } catch (e) {}
@@ -2990,7 +2983,7 @@ function copyUserID(userid) {
 
   function getFinalProgressState() {
     try {
-      var data = JSON.parse(localStorage.getItem('koko_recharge_6min_progress_v1') || '{}');
+      var data = JSON.parse(sessionStorage.getItem('koko_recharge_6min_progress_v1') || '{}');
       return data && data.finalStatus ? data : null;
     } catch (e) {
       return null;
@@ -3183,7 +3176,7 @@ function copyUserID(userid) {
 
     try {
       if (!ts) {
-        var v = localStorage.getItem('koko_recharge_last_ts_v2');
+        var v = sessionStorage.getItem('koko_recharge_last_ts_v2');
         if (v && /^\d+$/.test(v)) ts = parseInt(v, 10);
       }
     } catch (e) {}
@@ -3193,7 +3186,7 @@ function copyUserID(userid) {
     if (!ts || age < 0 || age > 15 * 60 * 1000) {
       ts = nowMs();
       try {
-        localStorage.setItem('koko_recharge_last_ts_v2', String(ts));
+        sessionStorage.setItem('koko_recharge_last_ts_v2', String(ts));
       } catch (e) {}
     }
 
@@ -3202,7 +3195,7 @@ function copyUserID(userid) {
 
   function getFinalProgressState() {
     try {
-      var data = JSON.parse(localStorage.getItem('koko_recharge_6min_progress_v1') || '{}');
+      var data = JSON.parse(sessionStorage.getItem('koko_recharge_6min_progress_v1') || '{}');
       return data && data.finalStatus ? data : null;
     } catch (e) {
       return null;
