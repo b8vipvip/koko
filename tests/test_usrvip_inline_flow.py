@@ -139,6 +139,20 @@ class UsrvipInlineFlowTest(unittest.TestCase):
         self.assertIn("后台任务可能仍在处理", self.page)
         self.assertIn("充值中'", self.page)
 
+    def test_historical_terminal_result_has_badge_without_progress(self):
+        self.assertIn("function kokoRechargeResultForDisplay(res)", self.page)
+        self.assertIn("if (kokoRenderFinishedRecharge(res)) return;", self.page)
+        self.assertIn("if (res.status === 'none') return;", self.page)
+        self.assertLess(self.page.index("if (kokoRenderFinishedRecharge(res)) return;"),
+                        self.page.index("if (res.status === 'none') return;"))
+        self.assertIn("window.kokoHideInlineRechargeProgress", self.page)
+        self.assertIn("slot.hidden = true;", self.page)
+        self.assertIn("slot.innerHTML = '';", self.page)
+        self.assertIn("localStorage.removeItem(STORE_KEY)", self.page)
+        self.assertIn("historyResultView", self.page)
+        self.assertIn("koko-account-result-badge is-", self.page)
+        self.assertIn("充值超时", self.page)
+
     def test_loading_is_spinner_not_progress_bar(self):
         submit = self.page.split("function submitUserInfo()", 1)[1].split(
             "function showAccountPopup(", 1
