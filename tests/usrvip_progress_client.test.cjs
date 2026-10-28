@@ -16,6 +16,7 @@ const saved = new Map();
 const storage = {
   getItem: (key) => saved.get(key) || null,
   setItem: (key, value) => saved.set(key, String(value)),
+  removeItem: key => saved.delete(key),
 };
 const $ = {
   get: () => ({ always: () => {} }), // Do not touch external backends.
@@ -59,6 +60,10 @@ const root = {
 };
 const slot = {
   hidden: true,
+  contains: element => element.parentNode === textRegion,
+  parentNode: {
+    insertBefore(element) { element.parentNode = this; },
+  },
   _html: '',
   querySelector: (selector) => selector === '[data-koko-recharge-progress="1"]' && slot._html ? root : null,
   set innerHTML(value) { this._html = value; },
@@ -122,4 +127,20 @@ assert.equal(side.textContent, '充值成功', 'real backend result overrides UI
 assert.equal(percent.textContent, '100%');
 assert.match(status.textContent, /充值结果：充值成功/);
 
-console.log('USRVIP simulated DOM: pending/8-minute boundary/backend final passed');
+
+window.kokoHideInlineRechargeProgress({ order_id:'dummy', r_status:'成功' });
+assert.equal(slot.hidden, true);
+assert.equal(slot.innerHTML, '');
+assert.equal(status.hidden, true);
+assert.equal(saved.has('koko_recharge_6min_progress_v1'), false,
+  'finished matched-order progress must not reappear on reload');
+
+window.kokoSaveRechargeProgressState({
+  startAt:time, order_id:'another-order', record_id:99, tel_data_id:999,
+  finalStatus:'', finalResult:'', finishedAt:null,
+});
+window.kokoShowInlineRechargeProgress(true);
+assert.equal(slot.hidden, false);
+assert.equal(status.hidden, false);
+
+console.log('USRVIP simulated DOM: pending/timeout/final/switch to history/new submission passed');
