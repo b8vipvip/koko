@@ -56,6 +56,18 @@ class UsrvipInlineFlowTest(unittest.TestCase):
         # No transform:scale on the entire form: keep touch targets and iOS focus functional.
         self.assertNotIn("transform:scale(", self.page)
 
+    def test_service_footer_flows_to_bottom_and_remains_scrollable(self):
+        self.assertIn('<div class="trust-footer">', self.page)
+        self.assertEqual(self.page.count('<div class="trust-footer">'), 1)
+        self.assertIn("margin:auto auto 6px !important", self.page)
+        self.assertIn("flex:0 0 auto", self.page)
+        self.assertIn("overflow-y:auto", self.page)
+        self.assertIn("gap:12px;", self.page)
+        self.assertIn("gap:10px;", self.page)
+        # The footer is part of document flow, never overlaying the form or inline progress.
+        self.assertNotIn("position:fixed", self.page)
+        self.assertNotIn("position:sticky", self.page)
+
     def test_form_input_never_automatically_submits(self):
         section = self.page.split("function validateAndMaybeSubmit()", 1)[1].split(
             "</script>", 1
