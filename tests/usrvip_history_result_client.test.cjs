@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const path = require('node:path');
 
 const html = fs.readFileSync(path.join(__dirname, '../usrvip/index.html'), 'utf8');
-const start = html.indexOf('function kokoRechargeResultForDisplay(res) {');
+const start = html.indexOf('const KOKO_HISTORY_WAIT_LIMIT_MS = 8 * 60 * 1000;');
 const end = html.indexOf('(function bindOrderIdExtractorMobileSafe()', start);
 assert.ok(start > 0 && end > start, 'history query functions must exist');
 const script = html.slice(start, end);
@@ -17,6 +17,12 @@ const card = { innerHTML: '' };
 const wrapper = { style: { display: 'none' } };
 const hiddenCalls = [];
 let apiResponse;
+let fakeNow = Date.UTC(2026, 9, 28, 8, 51, 0); // Beijing: 2026-10-28 16:51:00.
+const scheduled = new Map();
+let nextTimerId = 0;
+class FakeDate extends Date {
+  static now() { return fakeNow; }
+}
 const elements = {
   query_phone: query, rechargeStatus: status,
   accountInfoOutside: card, accountInfoOutsideWrapper: wrapper,
@@ -34,12 +40,19 @@ $.get = (url, parameters, callback) => {
   assert.equal(url, '/get_recharge_status');
   assert.equal(parameters.q, query.value);
   callback(apiResponse);
+  return { always(fn) { fn(); } };
 };
 const win = { kokoHideInlineRechargeProgress: res => hiddenCalls.push(res.r_status) };
 const context = {
   window: win, document: { getElementById: id => elements[id] },
   $, api: x => x, layer: { msg: msg => { throw new Error(msg); } },
-  console: { log() {} }, Object, Array,
+  console: { log() {} }, Object, Array, Date: FakeDate,
+  setInterval(callback) {
+    const id = ++nextTimerId;
+    scheduled.set(id, callback);
+    return id;
+  },
+  clearInterval(id) { scheduled.delete(id); },
   copyToClipboard() {},
 };
 vm.runInNewContext(script, context);
@@ -75,4 +88,50 @@ run({status:'none', r_status:'', accounts_24h:[]});
 assert.equal(status.hidden, false);
 assert.match(status.innerHTML, /无新提交记录/);
 assert.ok(!card.innerHTML.includes('koko-account-result-badge is-'));
-console.log('USRVIP history result query: success/failure/timeout outrank status=none; passed');
+
+// A historical tel_data order with NO terminal r_status is considered overdue
+// only at 8 minutes since the Beijing-local server recharge_time.
+const waiting = {
+  ...meta, r_status:'开始充值', tel_data_id: 188,
+  recharge_time:'2026-10-28 16:43:00',
+};
+fakeNow = Date.UTC(2026, 9, 28, 8, 50, 59);
+run(waiting); // 7:59
+assert.equal(status.hidden, false);
+assert.equal(card.innerHTML.includes('koko-account-result-badge is-timeout'), false);
+assert.equal(scheduled.size, 1, 'a pending verified order should still be polled');
+
+fakeNow = Date.UTC(2026, 9, 28, 8, 51, 0);
+apiResponse = {...waiting};
+// The next background refresh crosses the eight-minute threshold.
+for (const callback of [...scheduled.values()]) callback();
+assert.equal(status.hidden, true);
+assert.equal(wrapper.style.display, 'flex');
+assert.match(card.innerHTML, /koko-account-result-badge is-timeout/);
+assert.ok(card.innerHTML.includes('充值超时'));
+assert.equal(scheduled.size, 1, 'frontend-overdue result must keep checking server');
+
+// The initial manual lookup after minute eight should also show timeout immediately.
+run(waiting);
+assert.match(card.innerHTML, /koko-account-result-badge is-timeout/);
+assert.equal(scheduled.size, 1);
+
+apiResponse = { ...waiting, r_status:'充值成功' };
+// Simulate the next 30-second poll after the backend eventually reports success.
+for (const callback of [...scheduled.values()]) callback();
+assert.match(card.innerHTML, /koko-account-result-badge is-success/);
+assert.ok(card.innerHTML.includes('充值成功'));
+assert.equal(scheduled.size, 0, 'actual backend result should stop overtime polling');
+
+// A missing or invalid recharge_time must NOT be called overdue.
+run({...waiting, recharge_time:'not-a-date'});
+assert.equal(status.hidden, false);
+assert.equal(scheduled.size, 0);
+run({...waiting, recharge_time:'2026-02-30 01:00:00'});
+assert.equal(status.hidden, false);
+run({...waiting, tel_data_id:null, recharge_time:'2026-10-01 16:43:00'});
+assert.equal(status.hidden, false);
+run({...waiting, r_status:'充值失败'});
+assert.match(card.innerHTML, /koko-account-result-badge is-failure/);
+assert.equal(scheduled.size, 0);
+console.log('USRVIP history result: terminal precedence, 7:59/8:00 Beijing timeout, future outcome refresh passed');

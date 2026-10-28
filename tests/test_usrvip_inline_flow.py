@@ -141,9 +141,9 @@ class UsrvipInlineFlowTest(unittest.TestCase):
 
     def test_historical_terminal_result_has_badge_without_progress(self):
         self.assertIn("function kokoRechargeResultForDisplay(res)", self.page)
-        self.assertIn("if (kokoRenderFinishedRecharge(res)) return;", self.page)
+        self.assertIn("if (kokoRenderFinishedRecharge(res, q)) return;", self.page)
         self.assertIn("if (res.status === 'none') return;", self.page)
-        self.assertLess(self.page.index("if (kokoRenderFinishedRecharge(res)) return;"),
+        self.assertLess(self.page.index("if (kokoRenderFinishedRecharge(res, q)) return;"),
                         self.page.index("if (res.status === 'none') return;"))
         self.assertIn("window.kokoHideInlineRechargeProgress", self.page)
         self.assertIn("slot.hidden = true;", self.page)
@@ -152,6 +152,19 @@ class UsrvipInlineFlowTest(unittest.TestCase):
         self.assertIn("historyResultView", self.page)
         self.assertIn("koko-account-result-badge is-", self.page)
         self.assertIn("充值超时", self.page)
+
+    def test_history_timeout_uses_server_timestamp_and_keeps_polling(self):
+        self.assertIn("function kokoRechargeTimeMs(raw)", self.page)
+        self.assertIn("Date.UTC(y, month - 1, d, h, min, sec)", self.page)
+        self.assertIn("return bjtAsUtc - 8 * 60 * 60 * 1000", self.page)
+        self.assertIn("const KOKO_HISTORY_WAIT_LIMIT_MS = 8 * 60 * 1000", self.page)
+        self.assertIn("Date.now() - rechargeAt >= KOKO_HISTORY_WAIT_LIMIT_MS", self.page)
+        self.assertIn("res && res.tel_data_id && rechargeAt !== null", self.page)
+        self.assertIn("kokoStartHistoryRefresh(query || res.order_id || res.phone)", self.page)
+        self.assertIn("if (latestResult)", self.page)
+        self.assertIn("kokoStopHistoryRefresh()", self.page)
+        self.assertIn("window.kokoStopHistoryRefresh()", self.page)
+        self.assertIn("window.kokoRenderFinishedRecharge(res, params.q)", self.page)
 
     def test_loading_is_spinner_not_progress_bar(self):
         submit = self.page.split("function submitUserInfo()", 1)[1].split(

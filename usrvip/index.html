@@ -988,6 +988,61 @@ function submitRecharge() {
   });
 }
 // 公开查询中 status=none 只表示无近期 user_data，历史 tel_data 仍可能有结果。
+// 后端的充值时间是北京时间（UTC+08:00），不能直接用浏览器本地时区解析。
+const KOKO_HISTORY_WAIT_LIMIT_MS = 8 * 60 * 1000;
+const KOKO_HISTORY_REFRESH_MS = 30 * 1000;
+let kokoHistoryRefreshTimer = null;
+let kokoHistoryRefreshGeneration = 0;
+let kokoHistoryRefreshPending = false;
+
+function kokoRechargeTimeMs(raw) {
+  const m = String(raw || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/);
+  if (!m) return null;
+  const parts = m.slice(1).map(Number);
+  const [y, month, d, h, min, sec] = parts;
+  const bjtAsUtc = Date.UTC(y, month - 1, d, h, min, sec);
+  const probe = new Date(bjtAsUtc);
+  if (probe.getUTCFullYear() !== y || probe.getUTCMonth() !== month - 1 ||
+      probe.getUTCDate() !== d || probe.getUTCHours() !== h ||
+      probe.getUTCMinutes() !== min || probe.getUTCSeconds() !== sec) return null;
+  return bjtAsUtc - 8 * 60 * 60 * 1000;
+}
+
+function kokoStopHistoryRefresh() {
+  ++kokoHistoryRefreshGeneration;
+  if (kokoHistoryRefreshTimer !== null) {
+    clearInterval(kokoHistoryRefreshTimer);
+    kokoHistoryRefreshTimer = null;
+  }
+  kokoHistoryRefreshPending = false;
+}
+
+function kokoStartHistoryRefresh(q) {
+  q = String(q || '').trim();
+  if (!q) return;
+  kokoStopHistoryRefresh();
+  const generation = kokoHistoryRefreshGeneration;
+  const querySequence = window.kokoStatusQuerySequence || 0;
+  kokoHistoryRefreshTimer = setInterval(function(){
+    if (generation !== kokoHistoryRefreshGeneration || kokoHistoryRefreshPending ||
+        querySequence !== (window.kokoStatusQuerySequence || 0)) return;
+    kokoHistoryRefreshPending = true;
+    $.get(api('/get_recharge_status'), {q}, function(latest){
+      if (generation !== kokoHistoryRefreshGeneration ||
+          querySequence !== (window.kokoStatusQuerySequence || 0)) return;
+      const latestResult = kokoRechargeResultForDisplay(latest);
+      if (latestResult) {
+        // An overdue pending record becomes a timeout card at minute eight.
+        // A later real backend result supersedes the provisional timeout.
+        kokoRenderFinishedRecharge(latest, q);
+      }
+    }).always(function(){
+      if (generation === kokoHistoryRefreshGeneration) kokoHistoryRefreshPending = false;
+    });
+  }, KOKO_HISTORY_REFRESH_MS);
+}
+window.kokoStopHistoryRefresh = kokoStopHistoryRefresh;
+
 function kokoRechargeResultForDisplay(res) {
   const value = String((res && res.r_status) || '').trim();
   if (['充值成功', '成功', '已成功', '手动成功'].includes(value)) {
@@ -998,12 +1053,18 @@ function kokoRechargeResultForDisplay(res) {
     return { label:'充值失败', kind:'failure' };
   }
   if (['超时', '已超时'].includes(value)) {
-    return { label:'充值超时', kind:'timeout' };
+    return { label:'充值超时', kind:'timeout', provisional:true };
+  }
+  // Only a real tel_data recharge record can time out; no recent user_data is not enough.
+  const rechargeAt = kokoRechargeTimeMs(res && res.recharge_time);
+  if (res && res.tel_data_id && rechargeAt !== null &&
+      Date.now() - rechargeAt >= KOKO_HISTORY_WAIT_LIMIT_MS) {
+    return { label:'充值超时', kind:'timeout', provisional:true };
   }
   return null;
 }
 
-function kokoRenderFinishedRecharge(res) {
+function kokoRenderFinishedRecharge(res, query) {
   const outcome = kokoRechargeResultForDisplay(res);
   if (!outcome) return false;
   if (typeof window.kokoHideInlineRechargeProgress === 'function') {
@@ -1018,6 +1079,13 @@ function kokoRenderFinishedRecharge(res) {
     Array.isArray(res.accounts_24h) ? res.accounts_24h : [],
     Object.assign({}, res, { display_result: outcome })
   );
+  // Eight-minute timeout is a frontend display, not a backend terminal state.
+  // Continue checking in the open page; a later real outcome overrides the badge.
+  if (outcome.provisional) {
+    kokoStartHistoryRefresh(query || res.order_id || res.phone);
+  } else {
+    kokoStopHistoryRefresh();
+  }
   return true;
 }
 
@@ -1032,6 +1100,7 @@ function checkRechargeStatus() {
   if (!isPhone && !isCode) return layer.msg("请输入正确的手机号或兑换码");
 
   console.log("🔍 查询充值进度中：", q, "类型：", isPhone ? "phone" : "order_id");
+  kokoStopHistoryRefresh(); // A new search replaces the previous order's refresh.
 
   $('#accountInfoOutside').empty();
   // Rapid consecutive searches must not let a late older response overwrite the latest one.
@@ -1042,7 +1111,7 @@ function checkRechargeStatus() {
     console.log("📥 查询返回结果：", res);
 
     // 正式充值的 r_status 优先于近期提交状态，避免成功时显示“无新提交记录”。
-    if (kokoRenderFinishedRecharge(res)) return;
+    if (kokoRenderFinishedRecharge(res, q)) return;
 
     const statusEl = document.getElementById('rechargeStatus');
     if (statusEl) statusEl.hidden = false;
@@ -1065,6 +1134,12 @@ function checkRechargeStatus() {
       renderAccountsOutside(res.accounts_24h, res);
     } else {
       renderAccountsOutside([], res);
+    }
+
+    // The user may query at minute seven and leave the page open: keep watching
+    // a verified formal recharge until it times out or gets a real result.
+    if (res.tel_data_id && kokoRechargeTimeMs(res.recharge_time) !== null) {
+      kokoStartHistoryRefresh(q);
     }
 
     if (res.status === 'none') return;
@@ -1724,6 +1799,13 @@ function copyUserID(userid) {
       if (historyResultView) return;
       const rStatus = res && res.r_status;
       if (!isFinalStatus(rStatus)) {
+        // At eight minutes, the server's recharge_time takes precedence over the
+        // browser's local startAt for the *display*. The task keeps running.
+        if (typeof window.kokoRenderFinishedRecharge === 'function' &&
+            window.kokoRenderFinishedRecharge(res, params.q)) {
+          stopStatusChecking();
+          return;
+        }
         saveProgress({statusChecking:true});
         refreshAllProgress();
         return;
@@ -1737,7 +1819,7 @@ function copyUserID(userid) {
       });
       stopStatusChecking();
       if (typeof window.kokoRenderFinishedRecharge === 'function') {
-        window.kokoRenderFinishedRecharge(res);
+        window.kokoRenderFinishedRecharge(res, params.q);
       } else {
         refreshAllProgress();
       }
@@ -1926,6 +2008,7 @@ function copyUserID(userid) {
   // 保持现有正式充值记录保存与服务端状态轮询，改变的仅是展示位置。
   window.kokoSaveRechargeProgressState = function(extra){
     // A new, explicitly confirmed exchange replaces a previously opened history view.
+    if (typeof window.kokoStopHistoryRefresh === 'function') window.kokoStopHistoryRefresh();
     historyResultView = false;
     return saveProgress(Object.assign({statusChecking:true}, extra || {}));
   };
