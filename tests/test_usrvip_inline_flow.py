@@ -166,6 +166,17 @@ class UsrvipInlineFlowTest(unittest.TestCase):
         self.assertIn("window.kokoStopHistoryRefresh()", self.page)
         self.assertIn("window.kokoRenderFinishedRecharge(res, params.q)", self.page)
 
+    def test_spinner_countdown_and_query_recovery_without_duplicate_status(self):
+        self.assertIn('id="koko-submit-loading-countdown"', self.page)
+        self.assertIn("30 - Math.floor((Date.now() - countdownStartedAt) / 1000)", self.page)
+        self.assertIn("stopLoadingCountdown()", self.page)
+        self.assertIn("window.kokoRestoreQueriedRechargeProgress = function(res, q)", self.page)
+        self.assertIn("window.kokoRestoreQueriedRechargeProgress(res, q)", self.page)
+        self.assertIn("statusEl.hidden = queriedProgressView", self.page)
+        self.assertIn("statusEl && queriedProgressView && slot.contains(statusEl)", self.page)
+        self.assertIn("if (historyResultView || queriedProgressView || !data || data.finalStatus)", self.page)
+        self.assertIn("serverStart = typeof kokoRechargeTimeMs === 'function'", self.page)
+
     def test_loading_is_spinner_not_progress_bar(self):
         submit = self.page.split("function submitUserInfo()", 1)[1].split(
             "function showAccountPopup(", 1
