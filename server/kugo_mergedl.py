@@ -2775,7 +2775,7 @@ def get_recharge_status():
                         WHERE id = %s
                     """, (order_id_to_update,))
                     conn.commit()
-                    print(f"✅ 已将 order_id 表中 id={order_id_to_update} 的 status 更新为 1")
+                    logger.info("public recharge status: invalid order released")
                 except Exception as e:
                     print(f"⚠️ 更新 order_id 表出错：{e}")
 
