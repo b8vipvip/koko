@@ -359,6 +359,12 @@ html, body {
   #presetList { left:74px; top:38px; margin-left:0; max-width:calc(100% - 74px); box-sizing:border-box; }
   #accountInfoOutsideWrapper { padding:0; margin-top:12px; box-sizing:border-box; width:100%; }
   .account-box { box-sizing:border-box; max-width:420px; width:100%; padding:12px 14px; border:1px solid #e6edf5; box-shadow:none; }
+  .koko-account-result-heading { display:flex; gap:8px; align-items:center; justify-content:space-between; flex-wrap:wrap; margin:3px 0 9px; }
+  .koko-account-result-title { color:#253449; font-size:16px; font-weight:700; }
+  .koko-account-result-badge { display:inline-flex; flex-shrink:0; align-items:center; padding:4px 9px; font-size:12px; font-weight:650; line-height:1.4; border-radius:999px; }
+  .koko-account-result-badge.is-success { color:#14764a; background:#e5f6eb; }
+  .koko-account-result-badge.is-failure { color:#ba3434; background:#fff0ee; }
+  .koko-account-result-badge.is-timeout { color:#a76103; background:#fff3d7; }
   /* Push the service card to the bottom when there is spare room; retain a gap and normal scrolling when space is tight. */
   .trust-footer { width:calc(100% - 28px) !important; max-width:420px !important; flex:0 0 auto; padding:clamp(9px, 1.4dvh, 13px) 15px !important; box-sizing:border-box !important; margin:auto auto 6px !important; background:#fff; color:#666; box-shadow:0 4px 12px rgba(0,0,0,.04); border:1px solid #e6edf5; border-radius:12px !important; line-height:1.48 !important; font-size:11.5px !important; }
   .trust-footer > div { overflow-wrap:anywhere; }
@@ -981,6 +987,40 @@ function submitRecharge() {
     }
   });
 }
+// 公开查询中 status=none 只表示无近期 user_data，历史 tel_data 仍可能有结果。
+function kokoRechargeResultForDisplay(res) {
+  const value = String((res && res.r_status) || '').trim();
+  if (['充值成功', '成功', '已成功', '手动成功'].includes(value)) {
+    return { label:'充值成功', kind:'success' };
+  }
+  if (['失败', '已失败', '充值失败', '已拦截', '无效订单', '重复订单',
+       '验证失效', '验证码失效', '验证错'].includes(value)) {
+    return { label:'充值失败', kind:'failure' };
+  }
+  if (['超时', '已超时'].includes(value)) {
+    return { label:'充值超时', kind:'timeout' };
+  }
+  return null;
+}
+
+function kokoRenderFinishedRecharge(res) {
+  const outcome = kokoRechargeResultForDisplay(res);
+  if (!outcome) return false;
+  if (typeof window.kokoHideInlineRechargeProgress === 'function') {
+    window.kokoHideInlineRechargeProgress(res);
+  }
+  const statusEl = document.getElementById('rechargeStatus');
+  if (statusEl) {
+    statusEl.textContent = '';
+    statusEl.hidden = true;
+  }
+  renderAccountsOutside(
+    Array.isArray(res.accounts_24h) ? res.accounts_24h : [],
+    Object.assign({}, res, { display_result: outcome })
+  );
+  return true;
+}
+
 function checkRechargeStatus() {
   const q = $('#query_phone').val().trim();
   if (!q) return layer.msg("请输入手机号或兑换码");
@@ -998,43 +1038,33 @@ function checkRechargeStatus() {
   $.get(api('/get_recharge_status'), { q }, res => {
     console.log("📥 查询返回结果：", res);
 
-    // 单一充值状态信息：有正式进度条时该节点会被移入卡片，避免重复。
-    const chargingList = ["等待", "准备登录", "webdl", "appdl", "登录成功"];
-    const successList = ["充值成功", "成功", "已成功", "手动成功"];
-    const failList = ["失败", "已失败", "充值失败", "已拦截", "无效订单", "重复订单"];
-    const manualList = ["需手动", "卡了", "超时", "异常", "正在充值", "充值中", "无元素", "滑块验证"];
-    const yzmList = ["验证失效", "验证码失效", "验证错"];
-    const statusEl = $('#rechargeStatus');
+    // 正式充值的 r_status 优先于近期提交状态，避免成功时显示“无新提交记录”。
+    if (kokoRenderFinishedRecharge(res)) return;
 
-    if (successList.includes(res.r_status)) {
-      statusEl.text('充值成功，您账号重新登录一次即可，有问题请联系客服');
-    } else if (failList.includes(res.r_status)) {
-      statusEl.text('充值失败，请联系客服');
-    } else if (yzmList.includes(res.r_status)) {
-      statusEl.text('验证码失效了，请重新提交');
-    } else if (chargingList.includes(res.r_status) || manualList.includes(res.r_status)) {
-      statusEl.html(
+    const statusEl = document.getElementById('rechargeStatus');
+    if (statusEl) statusEl.hidden = false;
+    const chargingList = ['等待', '准备登录', 'webdl', 'appdl', '登录成功'];
+    const manualList = ['需手动', '卡了', '异常', '正在充值', '充值中', '无元素', '滑块验证'];
+
+    if (chargingList.includes(res.r_status) || manualList.includes(res.r_status)) {
+      $('#rechargeStatus').html(
         '<span style="color:#1890ff;">充值中，大概' +
         '<span style="color:#ff4d4f;font-weight:bold;">6分钟</span>' +
         '后到账，如未到账可联系客服。</span>'
       );
+    } else if (res.status === 'none') {
+      $('#rechargeStatus').html('<span style="color:#1890ff;">无新提交记录！</span>');
     } else {
-      statusEl.text('当前暂无充值记录');
+      $('#rechargeStatus').text('当前暂无充值记录');
     }
 
-    // ✅ 渲染账号信息（如有）
     if (res.accounts_24h) {
       renderAccountsOutside(res.accounts_24h, res);
     } else {
       renderAccountsOutside([], res);
     }
 
-
-    // ✅ 提示状态
-    if (res.status === 'none') {
-      $('#rechargeStatus').html('<span style="color: black;">充值进度：</span><span style="color: #1890ff;">无新提交记录！</span>');
-      return;
-    }
+    if (res.status === 'none') return;
 
     // ✅ 保存关键字段用于提交
     // ⚠️ 注意：如果用户用兑换码查询，后端会把 phone 回传回来（见下面后端改法）
@@ -1071,6 +1101,12 @@ function renderAccountsOutside(accounts, meta) {
   const vipTerm = meta.vip_term || "";       // "月卡/季卡/"
   const rechargeTime = meta.recharge_time || '';
   const isManualRecharge = meta.is_manual_recharge == 1;
+  // Badge text and style come from a fixed frontend mapping.
+  const result = meta.display_result || null;
+  const resultHeading = '<div class="koko-account-result-heading">' +
+    '<span class="koko-account-result-title">充值信息</span>' +
+    (result ? '<span class="koko-account-result-badge is-' + result.kind + '">' + result.label + '</span>' : '') +
+    '</div>';
 
   // 没账号也要显示顶部信息（你需求是“展示账号信息页面添加几个元素”）
   let topInfo = "";
@@ -1101,14 +1137,14 @@ function renderAccountsOutside(accounts, meta) {
   
   if (!accounts || !accounts.length) {
     container.innerHTML = `
-      <div style="margin-top: 3px; font-weight: bold; font-size: 16px;">充值信息</div>
+      ${resultHeading}
       ${topInfo}
       <div style="text-align:center;color:#888;margin-top:10px;">暂无充值信息</div>
     `;
     return;
   }
 
-  let html = `<div style="margin-top: 3px; font-weight: bold; font-size: 16px;">充值信息</div>`;
+  let html = resultHeading;
   html += topInfo;
 
   accounts.forEach((acc, i) => {
