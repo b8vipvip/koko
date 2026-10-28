@@ -1,0 +1,32 @@
+name: usrvip security contract
+
+on:
+  pull_request:
+    paths:
+      - "usrvip/**"
+      - "server/kugo_mergedl.py"
+      - "tests/test_usrvip_security_contract.py"
+      - ".github/workflows/usrvip-security-contract.yml"
+  push:
+    branches: [main]
+    paths:
+      - "usrvip/**"
+      - "server/kugo_mergedl.py"
+      - "tests/test_usrvip_security_contract.py"
+
+permissions:
+  contents: read
+
+jobs:
+  static-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check Python syntax
+        run: python -m py_compile server/kugo_mergedl.py
+      - name: Check frontend security contract
+        run: python -m unittest discover -s tests -p test_usrvip_security_contract.py
