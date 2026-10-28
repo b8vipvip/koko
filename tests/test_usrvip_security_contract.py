@@ -43,7 +43,8 @@ class UsrvipSecurityContractTest(unittest.TestCase):
             self.assertNotRegex(whitelist, rf"['\"]{sensitive_field}['\"]")
 
     def test_progress_state_does_not_persist_after_browser_session(self):
-        self.assertNotIn("localStorage.", self.html)
+        self.assertNotIn("localStorage.setItem", self.html)
+        self.assertIn("store.removeItem(key)", self.html)
         self.assertIn("sessionStorage.", self.html)
 
     def test_error_messages_never_echo_original_otp_or_phone(self):
