@@ -161,7 +161,7 @@ class UsrvipInlineFlowTest(unittest.TestCase):
         self.assertIn("Date.now() - rechargeAt >= KOKO_HISTORY_WAIT_LIMIT_MS", self.page)
         self.assertIn("res && res.tel_data_id && rechargeAt !== null", self.page)
         self.assertIn("kokoStartHistoryRefresh(query || res.order_id || res.phone)", self.page)
-        self.assertIn("if (latestResult && !latestResult.provisional)", self.page)
+        self.assertIn("if (latestResult)", self.page)
         self.assertIn("kokoStopHistoryRefresh()", self.page)
         self.assertIn("window.kokoStopHistoryRefresh()", self.page)
         self.assertIn("window.kokoRenderFinishedRecharge(res, params.q)", self.page)
