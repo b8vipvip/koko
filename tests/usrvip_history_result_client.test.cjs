@@ -46,6 +46,9 @@ const restores = [];
 const win = {
   kokoHideInlineRechargeProgress: res => hiddenCalls.push(res.r_status),
   kokoRestoreQueriedRechargeProgress(res, q) {
+    // Mirrors the production restore guard: a verified record and valid recharge time.
+    if (!res || !res.tel_data_id ||
+        res.recharge_time !== '2026-10-28 16:43:00') return false;
     restores.push({order:res.order_id || q, id:res.tel_data_id});
     status.hidden = true;
     return true;
