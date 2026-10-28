@@ -99,15 +99,22 @@ fakeNow = Date.UTC(2026, 9, 28, 8, 50, 59);
 run(waiting); // 7:59
 assert.equal(status.hidden, false);
 assert.equal(card.innerHTML.includes('koko-account-result-badge is-timeout'), false);
-assert.equal(scheduled.size, 0);
+assert.equal(scheduled.size, 1, 'a pending verified order should still be polled');
 
 fakeNow = Date.UTC(2026, 9, 28, 8, 51, 0);
-run(waiting); // 8:00
+apiResponse = {...waiting};
+// The next background refresh crosses the eight-minute threshold.
+for (const callback of [...scheduled.values()]) callback();
 assert.equal(status.hidden, true);
 assert.equal(wrapper.style.display, 'flex');
 assert.match(card.innerHTML, /koko-account-result-badge is-timeout/);
 assert.ok(card.innerHTML.includes('充值超时'));
 assert.equal(scheduled.size, 1, 'frontend-overdue result must keep checking server');
+
+// The initial manual lookup after minute eight should also show timeout immediately.
+run(waiting);
+assert.match(card.innerHTML, /koko-account-result-badge is-timeout/);
+assert.equal(scheduled.size, 1);
 
 apiResponse = { ...waiting, r_status:'充值成功' };
 // Simulate the next 30-second poll after the backend eventually reports success.
