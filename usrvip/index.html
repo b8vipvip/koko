@@ -1031,10 +1031,10 @@ function kokoStartHistoryRefresh(q) {
       if (generation !== kokoHistoryRefreshGeneration ||
           querySequence !== (window.kokoStatusQuerySequence || 0)) return;
       const latestResult = kokoRechargeResultForDisplay(latest);
-      if (latestResult && !latestResult.provisional) {
-        // The backend outcome wins, even when its independent status field remains "none".
-        kokoStopHistoryRefresh();
-        kokoRenderFinishedRecharge(latest);
+      if (latestResult) {
+        // An overdue pending record becomes a timeout card at minute eight.
+        // A later real backend result supersedes the provisional timeout.
+        kokoRenderFinishedRecharge(latest, q);
       }
     }).always(function(){
       if (generation === kokoHistoryRefreshGeneration) kokoHistoryRefreshPending = false;
@@ -1134,6 +1134,12 @@ function checkRechargeStatus() {
       renderAccountsOutside(res.accounts_24h, res);
     } else {
       renderAccountsOutside([], res);
+    }
+
+    // The user may query at minute seven and leave the page open: keep watching
+    // a verified formal recharge until it times out or gets a real result.
+    if (res.tel_data_id && kokoRechargeTimeMs(res.recharge_time) !== null) {
+      kokoStartHistoryRefresh(q);
     }
 
     if (res.status === 'none') return;
