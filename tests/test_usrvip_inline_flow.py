@@ -38,6 +38,24 @@ class UsrvipInlineFlowTest(unittest.TestCase):
                 self.assertEqual(result.returncode, 0,
                                  f"Script #{index} invalid: {result.stderr}")
 
+    def test_compact_layout_and_scrolling_marquee(self):
+        self.assertNotIn('<header class="koko-form-header">', self.page)
+        self.assertNotIn('<h1>自助兑换</h1>', self.page)
+        self.assertIn('class="marquee-container"', self.page)
+        self.assertIn('class="marquee-content"', self.page)
+        self.assertIn("animation:kokoMarqueeScroll 14s linear infinite", self.page)
+        self.assertIn("@keyframes kokoMarqueeScroll", self.page)
+        self.assertIn("@media (prefers-reduced-motion:reduce)", self.page)
+
+    def test_short_phone_viewport_and_accessible_fallback(self):
+        self.assertIn("@media(max-height:700px)", self.page)
+        self.assertIn("@media(max-height:590px)", self.page)
+        self.assertIn("overflow-y:auto", self.page)
+        self.assertIn("height:100dvh", self.page)
+        self.assertIn('id="kokoRechargeInline"', self.page)
+        # No transform:scale on the entire form: keep touch targets and iOS focus functional.
+        self.assertNotIn("transform:scale(", self.page)
+
     def test_form_input_never_automatically_submits(self):
         section = self.page.split("function validateAndMaybeSubmit()", 1)[1].split(
             "</script>", 1
