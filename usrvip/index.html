@@ -1714,7 +1714,7 @@ function copyUserID(userid) {
   }
 
   function defaultText(){
-    return `充值中，大概<span class="koko-recharge-progress-warn">6分钟</span>后到账，如未到账可联系客服。`;
+    return `预计处理时间约 6 分钟。进度百分比为时间估算，仅在后台确认完成后显示最终结果。`;
   }
 
   function createProgressHtml(opts){
@@ -1726,7 +1726,7 @@ function copyUserID(userid) {
       <div class="koko-recharge-progress-card" data-koko-recharge-progress="1">
         <div class="koko-recharge-progress-title">
           <span>${title}</span>
-          <span class="koko-recharge-progress-percent">1%</span>
+          <span class="koko-recharge-progress-percent" aria-label="预计处理进度">1%</span>
         </div>
         <div class="koko-recharge-progress-track">
           <div class="koko-recharge-progress-bar"></div>
@@ -1737,7 +1737,7 @@ function copyUserID(userid) {
         </div>
         <div class="koko-recharge-progress-text">${text}</div>
         <div class="koko-recharge-progress-tip">
-          已提交充值任务，系统正在处理。可以关闭页面，后续点击“查询进度”也能继续查看进度。
+          任务已提交，处理状态以后台查询结果为准。可以返回本页面查询进度。
         </div>
         ${accountHtml}
       </div>
@@ -1801,143 +1801,63 @@ function copyUserID(userid) {
     });
   }
 
-  function openRechargeProgressDialog(){
-    const data = saveProgress({});
-    const html = `
-      <div class="koko-recharge-dialog-wrap">
-        ${createProgressHtml({
-          title:'正在充值',
-          text: defaultText(),
-          accountHtml:true
-        })}
-      </div>
-    `;
+  // 唯一充值进度容器：始终显示在兑换表单下方，不创建任何进度弹窗。
+  function showInlineRechargeProgress(scrollToProgress){
+    const data = getProgress();
+    const slot = document.getElementById('kokoRechargeInline');
+    if (!slot || !data || !data.startAt) return;
+    // 只接受正式兑换 /api 保存的任务，不因查询、验证码或 /submit 而显示进度条。
+    if (!data.tel_data_id && !data.record_id && !data.order_id) return;
 
-    function openByLayer(layer){
-      const index = layer.open({
-        type: 1,
-        title: false,
-        closeBtn: 1,
-        shade: [0.35, '#000'],
-        shadeClose: false,
-        area: ['400px', 'auto'],
-        content: html,
-        success: function(dom){
-          const root = dom[0] ? dom[0].querySelector('[data-koko-recharge-progress="1"]') : null;
-          updateProgressDom(root, data);
-        }
+    slot.hidden = false;
+    if (!slot.querySelector('[data-koko-recharge-progress="1"]')) {
+      slot.innerHTML = createProgressHtml({
+        title: '充值进度（预计）',
+        text: defaultText(),
+        accountHtml: false
       });
-      return index;
     }
 
-    if (window.layui && layui.layer) {
-      return openByLayer(layui.layer);
-    }
+    const root = slot.querySelector('[data-koko-recharge-progress="1"]');
+    updateProgressDom(root, data);
+    ensureStatusChecking(data);
 
-    if (window.layui && layui.use) {
-      layui.use(['layer'], function(){
-        openByLayer(layui.layer);
-      });
-      return;
-    }
-
-    alert('充值任务已提交，预计6分钟左右到账。可以关闭页面，后续点击查询进度也能查看进度。');
-  }
-
-  function installLayerPatch(){
-    if (!window.layui || !layui.layer) return false;
-    const layer = layui.layer;
-    if (layer.__kokoRechargeProgressPatched) return true;
-
-    const rawAlert = layer.alert;
-    const rawMsg = layer.msg;
-
-    layer.alert = function(content){
-      const text = String(content || '');
-      if (text.indexOf('正在充值') !== -1 && text.indexOf('6分钟') !== -1) {
-        openRechargeProgressDialog();
-        return 0;
-      }
-      return rawAlert.apply(this, arguments);
-    };
-
-    layer.msg = function(content){
-      const text = String(content || '');
-      if (text.indexOf('正在充值') !== -1 && text.indexOf('6分钟') !== -1) {
-        openRechargeProgressDialog();
-        return 0;
-      }
-      return rawMsg.apply(this, arguments);
-    };
-
-    layer.__kokoRechargeProgressPatched = true;
-    return true;
-  }
-
-  function patchRechargeStatusBoxes(){
-    const statusEl = document.getElementById('rechargeStatus');
-    const resultEl = document.getElementById('rechargeResult');
-
-    if (statusEl && !statusEl.querySelector('[data-koko-recharge-progress="1"]')) {
-      const txt = statusEl.innerText || '';
-      if (txt.indexOf('充值中') !== -1 || txt.indexOf('6分钟') !== -1) {
-        mountProgressInElement(statusEl, '充值进度', defaultText());
-      }
-    }
-
-    if (resultEl && !resultEl.querySelector('[data-koko-recharge-progress="1"]')) {
-      const txt = resultEl.innerText || '';
-      if (txt.indexOf('充值中') !== -1 || txt.indexOf('已提交') !== -1) {
-        mountProgressInElement(resultEl, '充值结果', `充值中，系统已提交任务，预计<span class="koko-recharge-progress-warn">6分钟</span>内到账。`);
-      }
+    if (scrollToProgress && typeof slot.scrollIntoView === 'function') {
+      slot.scrollIntoView({behavior: 'smooth', block: 'nearest'});
     }
   }
 
-  function observeRechargeBoxes(){
-    const obs = new MutationObserver(function(){
-      patchRechargeStatusBoxes();
-    });
-
-    obs.observe(document.documentElement, {
-      childList:true,
-      subtree:true,
-      characterData:true
-    });
-  }
-
-  // 暴露给原有代码或调试使用
+  // 保持现有正式充值记录保存与服务端状态轮询，改变的仅是展示位置。
   window.kokoSaveRechargeProgressState = function(extra){
     return saveProgress(Object.assign({statusChecking:true}, extra || {}));
   };
 
+  window.kokoShowInlineRechargeProgress = showInlineRechargeProgress;
   window.kokoStartRecharge6MinProgress = function(extra){
     saveProgress(Object.assign({startAt: now(), statusChecking:true}, extra || {}));
-    openRechargeProgressDialog();
-    patchRechargeStatusBoxes();
+    showInlineRechargeProgress(true);
   };
 
-  // 页面加载后，如果本地有未完成进度，也继续刷新
-  document.addEventListener('DOMContentLoaded', function(){
-    saveProgress(getProgress() || {});
-    installLayerPatch();
-    patchRechargeStatusBoxes();
-    observeRechargeBoxes();
+  function bootInlineProgress(){
+    const saved = getProgress();
+    if (saved && (saved.tel_data_id || saved.record_id || saved.order_id)) {
+      showInlineRechargeProgress(false);
+    }
+    if (!window.__kokoInlineRechargeTimer) {
+      window.__kokoInlineRechargeTimer = setInterval(function(){
+        const data = getProgress();
+        if (!data || !data.startAt) return;
+        refreshAllProgress();
+        ensureStatusChecking(data);
+      }, 1000);
+    }
+  }
 
-    setInterval(function(){
-      installLayerPatch();
-      patchRechargeStatusBoxes();
-      refreshAllProgress();
-      ensureStatusChecking(getProgress());
-    }, 1000);
-  });
-
-  // 兼容脚本在 body 末尾插入但 DOMContentLoaded 已触发的情况
-  setTimeout(function(){
-    installLayerPatch();
-    patchRechargeStatusBoxes();
-    observeRechargeBoxes();
-    setInterval(refreshAllProgress, 1000);
-  }, 500);
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootInlineProgress, {once:true});
+  } else {
+    bootInlineProgress();
+  }
 })();
 </script>
 <!-- KOKO_RECHARGE_6MIN_PROGRESS_V1_END -->
