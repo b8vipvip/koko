@@ -42,7 +42,15 @@ $.get = (url, parameters, callback) => {
   callback(apiResponse);
   return { always(fn) { fn(); } };
 };
-const win = { kokoHideInlineRechargeProgress: res => hiddenCalls.push(res.r_status) };
+const restores = [];
+const win = {
+  kokoHideInlineRechargeProgress: res => hiddenCalls.push(res.r_status),
+  kokoRestoreQueriedRechargeProgress(res, q) {
+    restores.push({order:res.order_id || q, id:res.tel_data_id});
+    status.hidden = true;
+    return true;
+  },
+};
 const context = {
   window: win, document: { getElementById: id => elements[id] },
   $, api: x => x, layer: { msg: msg => { throw new Error(msg); } },
@@ -97,7 +105,9 @@ const waiting = {
 };
 fakeNow = Date.UTC(2026, 9, 28, 8, 50, 59);
 run(waiting); // 7:59
-assert.equal(status.hidden, false);
+assert.equal(status.hidden, true, 'ongoing formal query renders only the progress card');
+assert.equal(restores.length, 1);
+assert.equal(restores[0].id, 188);
 assert.equal(card.innerHTML.includes('koko-account-result-badge is-timeout'), false);
 assert.equal(scheduled.size, 1, 'a pending verified order should still be polled');
 
