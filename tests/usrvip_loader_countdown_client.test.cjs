@@ -28,6 +28,7 @@ const context = {
   Date: { now: () => time },
   Math, JSON,
   window: {},
+  inFlightSubmit: false,
   document: { getElementById: key => key === 'koko-submit-loading-countdown' ? countdown : null },
   $: input,
   layer: {
