@@ -331,31 +331,34 @@ html, body {
 <!-- KOKO_USRVIP_RESPONSIVE_UI_V1: 仅改展示样式，不改接口 -->
 <style>
   html, body { background:#f2f6fb; font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
-  .main-wrapper { height:100dvh; min-height:100vh; box-sizing:border-box; padding:clamp(22px,5vh,44px) 0 20px; gap:16px; overflow-y:auto; }
-  .container { width:calc(100% - 32px); max-width:420px; box-sizing:border-box; padding:24px 22px; border:1px solid #e6edf5; border-radius:20px; box-shadow:0 12px 40px rgba(30,57,93,.07); }
-  .koko-form-header { margin-bottom:14px; }
-  .koko-form-header h1 { margin:0; font-size:22px; line-height:1.4; font-weight:700; color:#142942; }
-  .koko-form-header p { margin:6px 0 0; color:#64748b; font-size:13px; line-height:1.65; }
-  .marquee-container { padding:10px 12px; margin-bottom:18px; box-sizing:border-box; border-radius:10px; background:#edf5ff; }
-  .marquee-content { display:block; white-space:normal; color:#355d89; font-weight:500; line-height:1.55; font-size:12px; animation:none; }
-  .form-group { display:grid; grid-template-columns:64px minmax(0,1fr); align-items:center; gap:10px; margin-bottom:14px; position:relative; }
+  /* Screen-height-aware density; scrolling remains available when results/keyboard expand. */
+  .main-wrapper { height:100vh; height:100dvh; min-height:0; box-sizing:border-box; padding:clamp(8px, 1.7dvh, 22px) 0 8px; gap:clamp(6px, 1dvh, 12px); overflow-x:hidden; overflow-y:auto; overscroll-behavior-y:contain; align-items:center; }
+  .container { width:calc(100% - 28px); max-width:420px; box-sizing:border-box; flex:0 0 auto; padding:clamp(12px, 2dvh, 20px) clamp(15px, 4vw, 22px); border:1px solid #e6edf5; border-radius:17px; box-shadow:0 12px 40px rgba(30,57,93,.07); }
+  /* Restore the original single-line scrolling notice instead of a static blue banner. */
+  .marquee-container { padding:3px 0; margin-bottom:11px; box-sizing:border-box; border-radius:0; background:transparent; overflow:hidden; white-space:nowrap; }
+  .marquee-content { display:inline-block; padding-left:100%; white-space:nowrap; color:#ef4444; font-weight:600; line-height:1.5; font-size:13px; animation:kokoMarqueeScroll 14s linear infinite; }
+  @keyframes kokoMarqueeScroll { from { transform:translateX(0); } to { transform:translateX(-100%); } }
+  @media (prefers-reduced-motion:reduce) { .marquee-content { animation:none; padding-left:0; white-space:normal; } }
+  .form-group { display:grid; grid-template-columns:64px minmax(0,1fr); align-items:center; gap:10px; margin-bottom:clamp(7px, 1.4dvh, 12px); position:relative; }
   .form-group label { font-size:14px; color:#334155; font-weight:600; line-height:1.4; margin:0; min-width:0; white-space:normal; }
-  .form-group input, #code, #order_id { display:block; box-sizing:border-box; width:100% !important; min-width:0; height:42px; padding:10px 12px; border:1px solid #d6e0ed; border-radius:10px; color:#16283f; background:#fff; font-size:14px; }
+  .form-group input, #code, #order_id { display:block; box-sizing:border-box; width:100% !important; min-width:0; height:clamp(36px, 6dvh, 42px); padding:7px 11px; border:1px solid #d6e0ed; border-radius:9px; color:#16283f; background:#fff; font-size:16px; }
   .form-group input:focus { border-color:#2478d4; box-shadow:0 0 0 3px rgba(36,120,212,.10); outline:none; }
   .form-inline { display:block; width:100%; min-width:0; }
   #code { padding-right:106px !important; }
   .form-inline #getCodeBtn { right:10px; top:50%; margin:0; padding:4px 0 4px 9px; border-left:1px solid #d6e0ed; background:transparent; color:#1368c3; font-size:12px; }
   .form-inline #getCodeBtn:disabled { color:#94a3b8; opacity:.9; cursor:not-allowed; }
-  .btn1, .btn2 { width:100%; max-width:none; min-height:42px; margin:0; padding:10px 14px; border-radius:10px; font-size:15px; font-weight:650; }
+  .btn1, .btn2 { width:100%; max-width:none; min-height:clamp(36px, 5.8dvh, 42px); margin:0; padding:7px 14px; border-radius:9px; font-size:14px; font-weight:650; }
   .btn1 { background:#176dcc; margin-left:0; }
   .btn2 { background:#136c46 !important; }
   .btn1:disabled { opacity:.6; cursor:not-allowed !important; }
-  .section-divider { margin:20px 0; border-top:1px solid #e8eef5; }
+  .section-divider { margin:clamp(10px, 1.7dvh, 16px) 0; border-top:1px solid #e8eef5; }
   #rechargeStatus, #rechargeResult { line-height:1.55; overflow-wrap:anywhere; }
   #presetList { left:74px; top:38px; margin-left:0; max-width:calc(100% - 74px); box-sizing:border-box; }
   #accountInfoOutsideWrapper { padding:0 16px; box-sizing:border-box; }
   .account-box { box-sizing:border-box; max-width:420px; width:100%; padding:16px; border:1px solid #e6edf5; }
-  .trust-footer { width:calc(100% - 32px) !important; max-width:420px !important; padding:16px 20px !important; box-sizing:border-box !important; margin:0 auto 18px !important; border:1px solid #e6edf5; border-radius:14px !important; line-height:1.75 !important; }
+  .trust-footer { width:calc(100% - 28px) !important; max-width:420px !important; flex:0 0 auto; padding:clamp(9px, 1.4dvh, 13px) 15px !important; box-sizing:border-box !important; margin:0 auto 6px !important; border:1px solid #e6edf5; border-radius:12px !important; line-height:1.48 !important; font-size:11.5px !important; }
+  .trust-footer > div { overflow-wrap:anywhere; }
+  .trust-footer > div[style*="margin-top:6px"] { margin-top:4px !important; }
   .koko-recharge-inline[hidden] { display:none !important; }
   .koko-recharge-inline { margin-top:18px; scroll-margin-top:18px; }
   .koko-recharge-inline .koko-recharge-progress-card { margin:0; box-shadow:none; border:1px solid #cfe1f7; background:#f8fbff; }
@@ -364,19 +367,39 @@ html, body {
   .koko-submit-loading-layer .layui-layer-content { padding:0; border-radius:16px; }
   .layui-layer.koko-submit-loading-layer { max-width:calc(100vw - 24px); border-radius:16px; }
   @media(max-width:360px) {
-    .container { padding:20px 16px; }
+    .container { width:calc(100% - 22px); padding:12px 13px; }
+    .trust-footer { width:calc(100% - 22px) !important; }
     .form-group { grid-template-columns:58px minmax(0,1fr); gap:8px; }
     .form-inline #getCodeBtn { font-size:11px; }
   }
+  /* Tighten only vertical spacing on short phone displays; keep text legible. */
+  @media(max-height:700px) {
+    .main-wrapper { padding-top:9px; padding-bottom:5px; gap:7px; }
+    .container { padding-top:12px; padding-bottom:12px; }
+    .marquee-container { padding:1px 0; margin-bottom:8px; }
+    .form-group { margin-bottom:8px; }
+    .form-group input, #code, #order_id { height:37px; }
+    .btn1, .btn2 { min-height:37px; }
+    .section-divider { margin:10px 0; }
+    .trust-footer { padding:9px 13px !important; margin-bottom:3px !important; line-height:1.4 !important; }
+  }
+  @media(max-height:590px) {
+    .main-wrapper { padding-top:5px; padding-bottom:3px; gap:5px; }
+    .container { padding-top:9px; padding-bottom:9px; }
+    .marquee-container { margin-bottom:5px; }
+    .form-group { margin-bottom:6px; }
+    .form-group input, #code, #order_id { height:35px; }
+    .btn1, .btn2 { min-height:35px; }
+    .section-divider { margin:7px 0; }
+    .trust-footer { padding:7px 11px !important; line-height:1.35 !important; }
+  }
+  /* For results, expanded accounts and the keyboard, allow natural scroll rather than clipping. */
+  .main-wrapper:has(#kokoRechargeInline:not([hidden])) { overflow-y:auto; }
 </style>
 </head>
 <body>
   <div class="main-wrapper">
   <div class="container">
-    <header class="koko-form-header">
-      <h1>自助兑换</h1>
-      <p>填写信息后手动提交，并核对确认兑换账号</p>
-    </header>
     <div class="marquee-container">
  
   <div class="marquee-content">如手机号对应多个账号，请在提交后选择需要兑换的账号。</div>
