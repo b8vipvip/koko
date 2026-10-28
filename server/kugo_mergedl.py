@@ -1786,14 +1786,14 @@ def login():
                 conn.rollback()
                 return jsonify({
                     "code": "409",
-                    "msg": f"record_id 与 token 不匹配：db_phone={db_phone}, token={token}"
+                    "msg": "record_id 与手机号不匹配"
                 }), 409
 
             if UrlsID and str(UrlsID) != str(db_code):
                 conn.rollback()
                 return jsonify({
                     "code": "409",
-                    "msg": f"record_id 与验证码不匹配：db_code={db_code}, UrlsID={UrlsID}"
+                    "msg": "record_id 与验证码不匹配"
                 }), 409
 
             # 强制使用 user_data.order_id
@@ -2661,7 +2661,7 @@ def get_recharge_status():
         record = cursor.fetchone()
 
         if record:
-            print("✅ 5分钟内 submitstatus=1 的记录：", record)
+            logger.info("public recharge status: matching record found")
             result['record_id'] = record.get('id')
             result['code'] = record.get('code', '') or ''
             result['order_id'] = record.get('order_id', '') or ''
@@ -2814,7 +2814,7 @@ def get_recharge_status():
                         'userid': acc_record.get(f'userid{index}')
                     }
                     result['accounts_24h'] = [account]
-                    print("✅ 返回所选账号信息：", account)
+                    logger.info("public recharge status: account details found (not logged)")
                 else:
                     print("❌ 未匹配到有效的账号信息（zhanghu或nickname为空）")
             else:
@@ -2870,8 +2870,19 @@ def get_recharge_status():
             result['show_label'] = '手机号'
             result['show_value'] = (result.get('phone') or '').strip()
             result['is_manual_recharge'] = 0
-        print("📤 get_recharge_status 返回：", result)
-        return jsonify(result)
+        # 此路由允许以手机号/兑换码查询，不具备身份认证。
+        # 不得返回第三方平台登录验证码、手机号、完整兑换码、账户头像/用户 ID、
+        # 自增记录 ID，也不得记录原始响应；后续应升级为授权的订单状态查询。
+        public_keys = (
+            'status', 'message', 'r_status', 'elapsed_minutes',
+            'recharge_time', 'vip_term', 'order_type', 'is_manual_recharge'
+        )
+        public_result = {key: result[key] for key in public_keys if key in result}
+        logger.info(
+            "public recharge status served query_type=%s status=%s",
+            result.get('query_type'), result.get('status')
+        )
+        return jsonify(public_result)
 
     except Exception as e:
         print("查询充值状态异常：", e)
