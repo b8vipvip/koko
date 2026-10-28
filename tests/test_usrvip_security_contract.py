@@ -42,6 +42,10 @@ class UsrvipSecurityContractTest(unittest.TestCase):
         for sensitive_field in ("code", "phone", "order_id", "record_id", "tel_data_id", "accounts_24h", "show_value"):
             self.assertNotRegex(whitelist, rf"['\"]{sensitive_field}['\"]")
 
+    def test_progress_state_does_not_persist_after_browser_session(self):
+        self.assertNotIn("localStorage.", self.html)
+        self.assertIn("sessionStorage.", self.html)
+
     def test_error_messages_never_echo_original_otp_or_phone(self):
         self.assertNotIn("db_code={db_code}, UrlsID={UrlsID}", self.backend)
         self.assertNotIn("db_phone={db_phone}, token={token}", self.backend)
