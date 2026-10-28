@@ -7,6 +7,7 @@ on:
       - 'tests/test_usrvip_inline_flow.py'
       - 'tests/usrvip_progress_client.test.cjs'
       - 'tests/usrvip_history_result_client.test.cjs'
+      - 'tests/usrvip_loader_countdown_client.test.cjs'
       - '.github/workflows/usrvip-ui-flow.yml'
   push:
     branches: [main]
@@ -34,3 +35,4 @@ jobs:
           python3 -m unittest discover -s tests -p 'test_usrvip_inline_flow.py' -v
           node tests/usrvip_progress_client.test.cjs
           node tests/usrvip_history_result_client.test.cjs
+          node tests/usrvip_loader_countdown_client.test.cjs
